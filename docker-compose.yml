@@ -1,0 +1,26 @@
+version: "3.9"
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    ports:
+      - "2000:2000"
+    environment:
+      - PORT=2000
+    volumes:
+      - backend-data:/app/data
+      - ./apc250917.xml:/app/apc250917.xml:ro
+      - ./Test domains.csv:/app/Test domains.csv:ro
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    environment:
+      - VITE_API_BASE=http://backend:2000/api
+    ports:
+      - "1000:1000"
+    depends_on:
+      - backend
+volumes:
+  backend-data:

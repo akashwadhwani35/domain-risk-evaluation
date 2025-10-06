@@ -1,0 +1,46 @@
+services:
+  - type: web
+    name: domain-risk-backend
+    env: go
+    plan: starter
+    region: oregon
+    buildCommand: |
+      cd backend
+      CGO_ENABLED=1 go build -o server ./cmd/server
+    startCommand: |
+      cd backend
+      if [ ! -f /render_data/domain-risk.db ]; then
+        cp data/domain-risk.db /render_data/domain-risk.db
+      fi
+      ./server
+    disk:
+      name: domain-risk-data
+      mountPath: /render_data
+      sizeGB: 10
+    envVars:
+      - key: PORT
+        value: "10000"
+      - key: DOMAIN_RISK_DB_PATH
+        value: /render_data/domain-risk.db
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: DISABLE_AI
+        value: "false"
+      - key: MARKS_LIMIT
+        value: "500000"
+      - key: POPULAR_MARK_LIMIT
+        value: "500000"
+      - key: LOG_LEVEL
+        value: debug
+
+  - type: static_site
+    name: domain-risk-frontend
+    plan: starter
+    region: oregon
+    buildCommand: |
+      npm --prefix frontend install
+      npm --prefix frontend run build
+    staticPublishPath: frontend/dist
+    envVars:
+      - key: VITE_API_BASE
+        value: https://domain-risk-backend.onrender.com/api

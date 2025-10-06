@@ -1,0 +1,19 @@
+FROM golang:1.22 AS build
+WORKDIR /app
+COPY backend/go.mod backend/go.sum ./
+RUN go mod download
+COPY backend ./backend
+WORKDIR /app/backend
+RUN CGO_ENABLED=1 GOOS=linux go build -o /app/server ./cmd/server
+
+FROM debian:bookworm-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libsqlite3-0 && rm -rf /var/lib/apt/lists/*
+COPY --from=build /app/server ./server
+COPY backend/internal/scoring/fanciful_seed.json ./fanciful_seed.json
+COPY backend/internal/scoring/vice_terms.json ./vice_terms.json
+COPY apc250917.xml ./apc250917.xml
+COPY "Test domains.csv" "./Test domains.csv"
+EXPOSE 2000
+ENV PORT=2000
+CMD ["./server"]
