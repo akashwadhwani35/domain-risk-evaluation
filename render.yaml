@@ -10,8 +10,8 @@ services:
     startCommand: |
       cd backend
       if [ ! -f /render_data/domain-risk.db ]; then
-        echo "[startup] downloading domain-risk.db" >&2
-        curl -Lf "$DOMAIN_RISK_DB_URL" -o /render_data/domain-risk.db
+        echo "[startup] downloading domain-risk.db.gz" >&2
+        curl -Lf "$DOMAIN_RISK_DB_URL" | gunzip > /render_data/domain-risk.db
       fi
       ./server
     disk:
