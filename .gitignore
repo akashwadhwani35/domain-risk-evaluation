@@ -74,6 +74,11 @@ logs
 bquxjob_*.csv
 popular-tokens.json
 
+# Database backup and temporary files (keep main .db file)
+*.db-shm
+*.db-wal
+*.db.bak
+
 # Cache directories
 .cache/
 .module-cache/
