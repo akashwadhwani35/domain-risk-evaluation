@@ -40,7 +40,6 @@ services:
     name: domain-risk-frontend
     env: static
     plan: starter
-    region: oregon
     buildCommand: |
       cd frontend
       npm install
