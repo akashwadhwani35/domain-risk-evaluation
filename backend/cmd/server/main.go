@@ -27,7 +27,7 @@ func main() {
 
 	defaultXML := filepath.Join(baseDir, "..", "apc250917.xml")
 	defaultDomains := filepath.Join(baseDir, "..", "Test domains.csv")
-	defaultCommercial := filepath.Join(baseDir, "..", "bquxjob_40fe6a70_1995182bb6e.csv")
+	defaultCommercial := filepath.Join(baseDir, "bquxjob_40fe6a70_1995182bb6e.csv")
 
 	aiCfg := ai.Config{
 		APIKey:  os.Getenv("OPENAI_API_KEY"),
