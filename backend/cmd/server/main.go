@@ -67,13 +67,13 @@ func main() {
 		commercialPath = envCommercial
 	}
 
-	popularLimit := 500000
+	popularLimit := 200000
 	if v := strings.TrimSpace(os.Getenv("POPULAR_MARK_LIMIT")); v != "" {
 		if val, err := strconv.Atoi(v); err == nil && val > 0 {
 			popularLimit = val
 		}
 	}
-	marksLimit := 500000
+	marksLimit := 200000
 	if v := strings.TrimSpace(os.Getenv("MARKS_LIMIT")); v != "" {
 		if val, err := strconv.Atoi(v); err == nil && val > 0 {
 			marksLimit = val
