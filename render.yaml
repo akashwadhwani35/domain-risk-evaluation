@@ -36,13 +36,15 @@ services:
       - key: LOG_LEVEL
         value: debug
 
-  - type: static_site
+  - type: web
     name: domain-risk-frontend
+    env: static
     plan: starter
     region: oregon
     buildCommand: |
-      npm --prefix frontend install
-      npm --prefix frontend run build
+      cd frontend
+      npm install
+      npm run build
     staticPublishPath: frontend/dist
     envVars:
       - key: VITE_API_BASE
