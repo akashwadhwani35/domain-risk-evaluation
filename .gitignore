@@ -74,10 +74,14 @@ logs
 bquxjob_*.csv
 popular-tokens.json
 
-# Database backup and temporary files (keep main .db file)
+# Database files (ALL database files excluded - use external storage for deployment)
+*.db
 *.db-shm
 *.db-wal
 *.db.bak
+*.db-journal
+backend/data/*.db*
+data/*.db*
 
 # Cache directories
 .cache/

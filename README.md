@@ -130,6 +130,87 @@ make dev
 
 The backend container mounts seeds, vice term configs, and sample XML/CSV files for instant evaluation.
 
+## Deployment on Render
+
+This project is configured for deployment on Render using `render.yaml`. The deployment uses an external database file to avoid repository size limits.
+
+### Database Setup
+
+The application requires a trimmed database (`domain-risk-slim.db`) containing:
+- 500k popular trademarks
+- Historical evaluations (1,304 rows)
+- Supporting metadata tables
+
+**Database Stats:**
+- File size: ~684 MB
+- Marks: 3.7M total rows (500k distinct normalized marks)
+- Popular marks: 500k rows
+- Evaluations: 1,304 rows
+
+### Deployment Steps
+
+1. **Upload Database to External Storage**
+
+   Upload `backend/data/domain-risk-slim.db` to cloud storage (S3, Google Cloud Storage, Dropbox, etc.) and obtain a publicly accessible download URL or presigned URL.
+
+2. **Configure Render Environment**
+
+   In your Render dashboard, set the following environment variable as a **Secret**:
+
+   - `DOMAIN_RISK_DB_URL`: The download URL for your database file
+   - `OPENAI_API_KEY`: Your OpenAI API key for AI explanations
+
+3. **Deploy to Render**
+
+   ```bash
+   git push origin main
+   ```
+
+   Render will automatically:
+   - Build the Go backend
+   - Build the React frontend
+   - Download the database on first startup (cached on persistent disk)
+   - Start both services
+
+4. **Service URLs**
+
+   After deployment:
+   - Backend API: `https://domain-risk-backend.onrender.com/api`
+   - Frontend UI: `https://domain-risk-frontend.onrender.com`
+
+### Environment Variables Reference
+
+**Backend (required):**
+- `DOMAIN_RISK_DB_URL` - Download URL for the database file (Secret)
+- `OPENAI_API_KEY` - OpenAI API key (Secret)
+
+**Backend (optional):**
+- `PORT` - Backend port (default: `10000` on Render, `2000` locally)
+- `DOMAIN_RISK_DB_PATH` - Database file path (default: `/render_data/domain-risk.db`)
+- `MARKS_LIMIT` - Number of marks to load (default: `500000`)
+- `POPULAR_MARK_LIMIT` - Popular marks limit (default: `500000`)
+- `DISABLE_AI` - Disable AI explanations (default: `false`)
+- `LOG_LEVEL` - Logging level (default: `debug`)
+
+**Frontend:**
+- `VITE_API_BASE` - Backend API URL (configured in `render.yaml`)
+
+### Local Development with Slim Database
+
+```bash
+# Use the slim database locally
+cp backend/data/domain-risk-slim.db backend/data/domain-risk.db
+
+# Start backend
+cd backend
+GOCACHE=$(pwd)/.gocache go run ./cmd/server
+
+# Start frontend
+cd frontend
+npm install
+npm run dev
+```
+
 ## Future Enhancements
 
 - Plug in live USPTO TSDR API via `internal/tsdr` once credentials are available.
