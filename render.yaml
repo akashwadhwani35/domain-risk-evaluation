@@ -35,8 +35,9 @@ services:
       - key: LOG_LEVEL
         value: debug
 
-  - type: static_site
+  - type: web
     name: domain-risk-frontend
+    env: static
     buildCommand: |
       cd frontend
       npm install
