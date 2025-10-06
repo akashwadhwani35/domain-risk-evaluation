@@ -95,13 +95,17 @@ func main() {
 		DefaultXMLPath:     defaultXML,
 		DefaultDomainsPath: defaultDomains,
 		CommercialSales:    commercialPath,
-		AllowedOrigins:     []string{"http://localhost:1000", "http://127.0.0.1:1000"},
-		AIConfig:           aiCfg,
-		USPTOConfig:        usptoCfg,
-		DisableAI:          disableAI,
-		PopularLimit:       popularLimit,
-		PopularMinCount:    popularMinCount,
-		MarksLimit:         marksLimit,
+		AllowedOrigins: []string{
+			"http://localhost:1000",
+			"http://127.0.0.1:1000",
+			"https://domain-risk-frontend.onrender.com",
+		},
+		AIConfig:        aiCfg,
+		USPTOConfig:     usptoCfg,
+		DisableAI:       disableAI,
+		PopularLimit:    popularLimit,
+		PopularMinCount: popularMinCount,
+		MarksLimit:      marksLimit,
 	}
 
 	if override := strings.TrimSpace(os.Getenv("DOMAIN_RISK_DB_PATH")); override != "" {
