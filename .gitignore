@@ -43,6 +43,11 @@ out/
 # Go workspace file
 go.work
 
+# Go module cache and build cache
+.gocache/
+.gocache
+go.sum
+
 # Python
 __pycache__/
 *.py[cod]
@@ -64,9 +69,10 @@ ENV/
 logs
 *.log
 
-# Large data files (keep CSV files but you may want to exclude large ones)
-# Uncomment the next line if you want to exclude large CSV files
-# *.csv
+# Large data files (exclude large CSV files and JSON files)
+# Keep small sample CSV files, but exclude large datasets
+bquxjob_*.csv
+popular-tokens.json
 
 # Cache directories
 .cache/

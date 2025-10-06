@@ -1,9 +1,0 @@
-# test log
-getenv TMPDIR
-open /var/folders/3c/pm0f3k956_q8s17jwbmlhfhm0000gn/T/TestTrademarkScoringExactMatchOnly3824825274/001/seed-1608051451.json
-open /var/folders/3c/pm0f3k956_q8s17jwbmlhfhm0000gn/T/TestTrademarkScoringExactMatchOnly3824825274/001/seed-1608051451.json
-open /var/folders/3c/pm0f3k956_q8s17jwbmlhfhm0000gn/T
-getenv TMPDIR
-open /var/folders/3c/pm0f3k956_q8s17jwbmlhfhm0000gn/T/TestViceScoring2942273190/001/vice-3972579112.json
-open /var/folders/3c/pm0f3k956_q8s17jwbmlhfhm0000gn/T/TestViceScoring2942273190/001/vice-3972579112.json
-open /var/folders/3c/pm0f3k956_q8s17jwbmlhfhm0000gn/T
