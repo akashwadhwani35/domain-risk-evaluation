@@ -941,7 +941,7 @@ export default function App() {
             <div className="flex flex-wrap gap-3 text-sm">
               <button
                 type="button"
-                onClick={() => evaluateBatch({ batchId: selectedBatch.id })}
+                onClick={() => evaluateBatch({ batchId: selectedBatch.id, resume: true })}
                 disabled={busy || isEvaluating}
                 className="px-4 py-2 rounded-lg bg-brand-500 hover:bg-brand-600 text-white font-medium disabled:opacity-60 disabled:cursor-not-allowed"
               >

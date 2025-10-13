@@ -159,6 +159,7 @@ func (s *Server) runEvaluation(ctx context.Context, job *evaluationJob, req Eval
 
 	skipExisting := req.Resume && !req.Force
 	existing := make(map[string]struct{})
+	var existingMu sync.Mutex
 	totalProcessed := 0
 
 	if skipExisting {
@@ -310,7 +311,10 @@ func (s *Server) runEvaluation(ctx context.Context, job *evaluationJob, req Eval
 					normalizedKey = strings.ToLower(domainValue)
 				}
 				if skipExisting {
-					if _, ok := existing[normalizedKey]; ok {
+					existingMu.Lock()
+					_, ok := existing[normalizedKey]
+					existingMu.Unlock()
+					if ok {
 						continue
 					}
 				}
@@ -407,7 +411,9 @@ func (s *Server) runEvaluation(ctx context.Context, job *evaluationJob, req Eval
 			saveDuration := time.Since(saveStart)
 
 			if skipExisting {
+				existingMu.Lock()
 				existing[eval.DomainNormalized] = struct{}{}
+				existingMu.Unlock()
 			}
 
 			dto := FromModel(eval)
@@ -674,9 +680,8 @@ func (s *Server) generateDecision(
 
 	result, err := s.callAIWithRetry(ctx, input)
 	if err != nil {
-		logrus.WithError(err).Warn("ai explainer unavailable; falling back to heuristic output")
-		decision.Narrative = buildFallbackNarrative(overall.Recommendation)
-		return decision, nil
+		logrus.WithError(err).Error("ai explainer failed; evaluation cannot proceed without AI")
+		return Decision{}, fmt.Errorf("ai evaluation required but failed: %w", err)
 	}
 
 	if strings.TrimSpace(result.Narrative) != "" {
