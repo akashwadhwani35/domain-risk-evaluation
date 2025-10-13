@@ -85,7 +85,7 @@ func NewClient(cfg Config) (*Client, error) {
 		cfg.MaxTokens = 300
 	}
 	client := &Client{
-		httpClient:  &http.Client{Timeout: 30 * time.Second},
+		httpClient:  &http.Client{Timeout: 60 * time.Second},
 		apiKey:      strings.TrimSpace(cfg.APIKey),
 		model:       cfg.Model,
 		baseURL:     cfg.BaseURL,

@@ -25,7 +25,7 @@ import (
 const (
 	evaluationThrottle            = 500 * time.Millisecond
 	commercialSimilarityThreshold = 0.8
-	aiMaxRetries                  = 3
+	aiMaxRetries                  = 6
 	aiInitialBackoff              = 2 * time.Second
 	aiMaxBackoff                  = 10 * time.Second
 )
@@ -826,7 +826,13 @@ func shouldRetryAI(err error) bool {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "status 429") || strings.Contains(msg, "status 500") || strings.Contains(msg, "status 503")
+	if strings.Contains(msg, "status 429") || strings.Contains(msg, "status 500") || strings.Contains(msg, "status 503") {
+		return true
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	return strings.Contains(msg, "context deadline exceeded") || strings.Contains(msg, "timeout exceeded while awaiting headers") || strings.Contains(msg, "client.timeout exceeded")
 }
 
 func splitDomainParts(domain string) (string, string) {
