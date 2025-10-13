@@ -39,9 +39,9 @@ func NewTrademarkScorer(marks []store.Mark, seedPath string) (*TrademarkScorer, 
 }
 
 // Score computes the trademark risk score for the provided domain profile.
-// Only fanciful exact matches between the domain's second-level label (SLD) and stored marks
-// are considered a high-risk trademark hit. Popular brands or public figures trigger a medium
-// review score, while generic words return a neutral score.
+// Fanciful exact matches default to a 4 (allow-with-caution baseline) unless the mark is also well known,
+// in which case the score is raised to 5 to signal a block recommendation. Popular brands or personalities
+// likewise escalate to 5 unless the token is a generic dictionary word.
 func (s *TrademarkScorer) Score(profile match.DomainProfile) TrademarkResult {
 	if s == nil || s.index == nil {
 		return TrademarkResult{Score: 0, Type: "none", Confidence: 0.2}
@@ -55,21 +55,29 @@ func (s *TrademarkScorer) Score(profile match.DomainProfile) TrademarkResult {
 	if entry := s.index.lookupExact(sld); entry != nil {
 		markType := s.index.classify(entry)
 		isCommon := isCommonWord(sld)
+		popularToken := IsPopularToken(sld)
+		resultType := markType
+		if popularToken && markType != "fanciful" {
+			resultType = "popular"
+		}
 		switch markType {
 		case "fanciful":
 			if isCommon {
 				return TrademarkResult{Score: 2, Type: "generic", MatchedTrademark: entry.Mark, Confidence: 0.6}
 			}
-			if IsPopularToken(sld) {
-				return TrademarkResult{Score: 3, Type: "popular", MatchedTrademark: entry.Mark, Confidence: 0.9}
+			if popularToken {
+				return TrademarkResult{Score: 5, Type: resultType, MatchedTrademark: entry.Mark, Confidence: 0.98}
 			}
-			return TrademarkResult{Score: 5, Type: markType, MatchedTrademark: entry.Mark, Confidence: 1.0}
+			return TrademarkResult{Score: 4, Type: resultType, MatchedTrademark: entry.Mark, Confidence: 0.9}
 		case "popular":
 			if isCommon {
-				return TrademarkResult{Score: 2, Type: markType, MatchedTrademark: entry.Mark, Confidence: 0.75}
+				return TrademarkResult{Score: 3, Type: markType, MatchedTrademark: entry.Mark, Confidence: 0.75}
 			}
-			return TrademarkResult{Score: 3, Type: markType, MatchedTrademark: entry.Mark, Confidence: 0.9}
+			return TrademarkResult{Score: 5, Type: markType, MatchedTrademark: entry.Mark, Confidence: 0.95}
 		default:
+			if popularToken && !isCommon {
+				return TrademarkResult{Score: 5, Type: "popular", MatchedTrademark: entry.Mark, Confidence: 0.9}
+			}
 			if isCommon {
 				return TrademarkResult{Score: 2, Type: "generic", MatchedTrademark: entry.Mark, Confidence: 0.6}
 			}

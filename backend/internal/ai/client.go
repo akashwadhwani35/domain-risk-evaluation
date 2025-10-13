@@ -35,6 +35,7 @@ type ExplanationInput struct {
 	Trademark            scoring.TrademarkResult
 	Vice                 scoring.ViceResult
 	Overall              scoring.OverallResult
+	OpeningCue           string
 	MarksCount           int
 	DomainsCount         int
 	CloseMatches         []string
@@ -260,6 +261,9 @@ func (c *Client) buildUserPrompt(input ExplanationInput) string {
 		builder.WriteString("Exact matches indicate high-risk conflict.\n")
 	} else {
 		builder.WriteString("No exact USPTO matches found.\n")
+	}
+	if cue := strings.TrimSpace(input.OpeningCue); cue != "" {
+		builder.WriteString(fmt.Sprintf("Begin the first sentence with \"%s\" while keeping the tone natural and directly referencing the second-level label.\n", cue))
 	}
 	second := strings.TrimSpace(input.SecondLevel)
 	top := strings.TrimSpace(input.TopLevel)

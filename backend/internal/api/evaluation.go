@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"runtime"
 	"sort"
 	"strings"
@@ -255,6 +256,10 @@ func (s *Server) runEvaluation(ctx context.Context, job *evaluationJob, req Eval
 	)
 
 	var workerWG sync.WaitGroup
+	jobID := job.id
+	batchID := job.batchID
+	batchName := job.batchName
+
 	for i := 0; i < workerCount; i++ {
 		workerWG.Add(1)
 		go func() {
@@ -265,7 +270,7 @@ func (s *Server) runEvaluation(ctx context.Context, job *evaluationJob, req Eval
 					return
 				default:
 				}
-				res := s.evaluateDomain(ctx, task, trademarkScorer, marks, totalDomains, usptoCache, &usptoCacheMu)
+				res := s.evaluateDomain(ctx, jobID, batchID, batchName, task, trademarkScorer, marks, totalDomains, usptoCache, &usptoCacheMu)
 				select {
 				case resultCh <- res:
 				case <-ctx.Done():
@@ -482,6 +487,9 @@ func determineWorkerCount() int {
 
 func (s *Server) evaluateDomain(
 	ctx context.Context,
+	jobID string,
+	batchID uint,
+	batchName string,
 	domain store.BatchDomain,
 	trademarkScorer *scoring.TrademarkScorer,
 	marks []store.Mark,
@@ -498,6 +506,11 @@ func (s *Server) evaluateDomain(
 
 	domainValue := strings.TrimSpace(domain.Domain)
 	if domainValue == "" {
+		logrus.WithFields(logrus.Fields{
+			"job":      jobID,
+			"batch_id": batchID,
+			"domain":   domain.Domain,
+		}).Warn("skip evaluation: empty domain value")
 		result.Err = errors.New("empty domain value")
 		return result
 	}
@@ -507,11 +520,37 @@ func (s *Server) evaluateDomain(
 		normalizedKey = strings.ToLower(domainValue)
 	}
 
+	logger := logrus.WithFields(logrus.Fields{
+		"job":            jobID,
+		"batch_id":       batchID,
+		"batch_name":     batchName,
+		"domain":         domainValue,
+		"normalized_key": normalizedKey,
+		"row_index":      domain.RowIndex,
+	})
+	logger.Debug("starting domain evaluation")
+
 	domainStart := time.Now()
 	timer := util.StartTimer()
 	profile := match.NormalizeDomain(domainValue)
+	logger = logger.WithFields(logrus.Fields{
+		"host":        profile.Host,
+		"brand_token": profile.BrandToken,
+	})
+	logger.WithFields(logrus.Fields{
+		"core":        profile.Core,
+		"tokens":      profile.Tokens,
+		"alt_splits":  profile.AltSplits,
+		"domain_host": profile.Host,
+	}).Debug("normalized domain profile")
 
 	fallbackResult := trademarkScorer.Score(profile)
+	logger.WithFields(logrus.Fields{
+		"fallback_score":      fallbackResult.Score,
+		"fallback_type":       fallbackResult.Type,
+		"fallback_trademark":  fallbackResult.MatchedTrademark,
+		"fallback_confidence": fallbackResult.Confidence,
+	}).Debug("computed fallback trademark score")
 
 	lookupDuration := time.Duration(0)
 	var lookupResult usp.LookupResult
@@ -526,11 +565,35 @@ func (s *Server) evaluateDomain(
 			lookupResult, lookupValid = s.lookupUSPTO(ctx, profile.BrandToken, cache)
 		}
 		lookupDuration = time.Since(lookupStart)
+		logger.WithFields(logrus.Fields{
+			"lookup_valid":    lookupValid,
+			"lookup_ms":       lookupDuration.Milliseconds(),
+			"exact_matches":   len(lookupResult.ExactMatches),
+			"similar_matches": len(lookupResult.Similar),
+		}).Debug("completed USPTO lookup")
 	}
 
 	trademarkResult, closeMatches := s.resolveTrademark(profile, lookupValid, lookupResult, fallbackResult)
+	logger.WithFields(logrus.Fields{
+		"trademark_score":      trademarkResult.Score,
+		"trademark_type":       trademarkResult.Type,
+		"trademark_match":      trademarkResult.MatchedTrademark,
+		"trademark_confidence": trademarkResult.Confidence,
+		"close_matches":        closeMatches,
+	}).Debug("resolved trademark result")
+
 	viceResult := s.viceScorer.Score(profile)
+	logger.WithFields(logrus.Fields{
+		"vice_score":      viceResult.Score,
+		"vice_categories": viceResult.Categories,
+		"vice_confidence": viceResult.Confidence,
+	}).Debug("resolved vice result")
+
 	overall := scoring.CombineRecommendation(trademarkResult, viceResult)
+	logger.WithFields(logrus.Fields{
+		"overall_recommendation": overall.Recommendation,
+		"overall_confidence":     overall.Confidence,
+	}).Debug("computed overall recommendation")
 
 	commercialOverride := false
 	commercialSource := ""
@@ -556,6 +619,13 @@ func (s *Server) evaluateDomain(
 	}
 
 	aiStart := time.Now()
+	logger.WithFields(logrus.Fields{
+		"commercial_override":   commercialOverride,
+		"commercial_source":     commercialSource,
+		"commercial_similarity": commercialSimilarity,
+		"commercial_price":      commercialPrice,
+	}).Debug("preparing AI decision input")
+
 	decision, err := s.generateDecision(
 		ctx,
 		profile,
@@ -575,6 +645,7 @@ func (s *Server) evaluateDomain(
 	)
 	aiDuration := time.Since(aiStart)
 	if err != nil {
+		logger.WithError(err).Error("AI decision failed")
 		result.Err = err
 		return result
 	}
@@ -606,6 +677,14 @@ func (s *Server) evaluateDomain(
 		viceResult.Confidence = conf
 	}
 
+	logger.WithFields(logrus.Fields{
+		"ai_trademark_score": decision.TrademarkScore,
+		"ai_vice_score":      decision.ViceScore,
+		"ai_recommendation":  decision.Recommendation,
+		"ai_confidence":      decision.Confidence,
+		"ai_ms":              aiDuration.Milliseconds(),
+	}).Debug("AI decision completed")
+
 	eval := store.Evaluation{
 		Domain:                domainValue,
 		DomainNormalized:      normalizedKey,
@@ -628,6 +707,14 @@ func (s *Server) evaluateDomain(
 	result.LookupDuration = lookupDuration
 	result.AiDuration = aiDuration
 	result.TotalDuration = time.Since(domainStart)
+
+	logger.WithFields(logrus.Fields{
+		"trademark_score":        eval.TrademarkScore,
+		"vice_score":             eval.ViceScore,
+		"overall_recommendation": eval.OverallRecommendation,
+		"processing_ms":          eval.ProcessingTimeMs,
+	}).Debug("domain evaluation prepared for persistence")
+
 	return result
 }
 
@@ -650,8 +737,7 @@ func (s *Server) generateDecision(
 ) (ai.Decision, error) {
 	decision := ai.Decision{Recommendation: strings.ToUpper(strings.TrimSpace(overall.Recommendation))}
 	if s.explainer == nil || !s.explainer.Enabled() {
-		decision.Narrative = buildFallbackNarrative(overall.Recommendation)
-		return decision, nil
+		return ai.Decision{}, fmt.Errorf("ai explainer not available")
 	}
 
 	tokens := collectDomainTokens(profile)
@@ -662,6 +748,7 @@ func (s *Server) generateDecision(
 		Trademark:            trademarkResult,
 		Vice:                 viceResult,
 		Overall:              overall,
+		OpeningCue:           selectOpeningCue(secondLevel),
 		MarksCount:           len(marks),
 		DomainsCount:         int(totalDomains),
 		CloseMatches:         closeMatches,
@@ -742,20 +829,6 @@ func shouldRetryAI(err error) bool {
 	return strings.Contains(msg, "status 429") || strings.Contains(msg, "status 500") || strings.Contains(msg, "status 503")
 }
 
-func buildFallbackNarrative(recommendation string) string {
-	rec := strings.ToUpper(strings.TrimSpace(recommendation))
-	switch rec {
-	case "BLOCK":
-		return "Heuristic risk scoring recommends BLOCK; AI explanation is temporarily unavailable."
-	case "REVIEW":
-		return "Heuristic signals recommend REVIEW; AI narrative waiting for retry."
-	case "ALLOW_WITH_CAUTION":
-		return "Heuristic evaluation suggests ALLOW WITH CAUTION; AI summary could not be retrieved."
-	default:
-		return "Heuristic evaluation completed; AI explanation unavailable at this time."
-	}
-}
-
 func splitDomainParts(domain string) (string, string) {
 	host := strings.ToLower(strings.TrimSpace(domain))
 	parts := strings.Split(host, ".")
@@ -768,6 +841,27 @@ func splitDomainParts(domain string) (string, string) {
 	}
 	secondLevel := parts[len(parts)-2]
 	return secondLevel, tld
+}
+
+func selectOpeningCue(secondLevel string) string {
+	trimmed := strings.TrimSpace(secondLevel)
+	if trimmed == "" {
+		return ""
+	}
+	cues := []string{
+		"Assessing",
+		"Exploring",
+		"Reviewing",
+		"Examining",
+		"Surveying",
+		"Investigating",
+		"Evaluating",
+		"Scrutinizing",
+	}
+	hasher := fnv.New32a()
+	_, _ = hasher.Write([]byte(strings.ToLower(trimmed)))
+	idx := int(hasher.Sum32()) % len(cues)
+	return fmt.Sprintf("%s %s", cues[idx], trimmed)
 }
 
 func collectDomainTokens(profile match.DomainProfile) []string {
