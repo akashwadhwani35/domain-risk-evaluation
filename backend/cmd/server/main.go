@@ -20,6 +20,20 @@ func main() {
 		logrus.Fatalf("determine working directory: %v", err)
 	}
 
+	level := strings.TrimSpace(os.Getenv("LOG_LEVEL"))
+	if level == "" {
+		logrus.SetLevel(logrus.DebugLevel)
+	} else if parsed, err := logrus.ParseLevel(level); err == nil {
+		logrus.SetLevel(parsed)
+	} else {
+		logrus.WithError(err).WithField("value", level).Warn("invalid LOG_LEVEL provided, defaulting to info")
+		logrus.SetLevel(logrus.InfoLevel)
+	}
+	logrus.SetFormatter(&logrus.TextFormatter{
+		FullTimestamp:   true,
+		TimestampFormat: time.RFC3339,
+	})
+
 	dataDir := filepath.Join(baseDir, "data")
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		logrus.Fatalf("create data directory: %v", err)

@@ -246,7 +246,7 @@ func (s *Server) runEvaluation(ctx context.Context, job *evaluationJob, req Eval
 			"type":      ev.Type,
 			"processed": ev.Processed,
 			"total":     job.total,
-		}).Debug("broadcast evaluation event")
+		}).Info("broadcast evaluation event")
 		hasPending = false
 	}
 
@@ -443,7 +443,7 @@ func (s *Server) runEvaluation(ctx context.Context, job *evaluationJob, req Eval
 				"save_ms":       saveDuration.Milliseconds(),
 				"processing_ms": eval.ProcessingTimeMs,
 				"total_ms":      totalElapsed.Milliseconds(),
-			}).Debug("evaluation timings")
+			}).Info("evaluation timings")
 			flush(false)
 
 			if int64(totalProcessed) >= job.total {
@@ -528,7 +528,7 @@ func (s *Server) evaluateDomain(
 		"normalized_key": normalizedKey,
 		"row_index":      domain.RowIndex,
 	})
-	logger.Debug("starting domain evaluation")
+	logger.Info("starting domain evaluation")
 
 	domainStart := time.Now()
 	timer := util.StartTimer()
@@ -542,7 +542,7 @@ func (s *Server) evaluateDomain(
 		"tokens":      profile.Tokens,
 		"alt_splits":  profile.AltSplits,
 		"domain_host": profile.Host,
-	}).Debug("normalized domain profile")
+	}).Info("normalized domain profile")
 
 	fallbackResult := trademarkScorer.Score(profile)
 	logger.WithFields(logrus.Fields{
@@ -550,7 +550,7 @@ func (s *Server) evaluateDomain(
 		"fallback_type":       fallbackResult.Type,
 		"fallback_trademark":  fallbackResult.MatchedTrademark,
 		"fallback_confidence": fallbackResult.Confidence,
-	}).Debug("computed fallback trademark score")
+	}).Info("computed fallback trademark score")
 
 	lookupDuration := time.Duration(0)
 	var lookupResult usp.LookupResult
@@ -570,7 +570,7 @@ func (s *Server) evaluateDomain(
 			"lookup_ms":       lookupDuration.Milliseconds(),
 			"exact_matches":   len(lookupResult.ExactMatches),
 			"similar_matches": len(lookupResult.Similar),
-		}).Debug("completed USPTO lookup")
+		}).Info("completed USPTO lookup")
 	}
 
 	trademarkResult, closeMatches := s.resolveTrademark(profile, lookupValid, lookupResult, fallbackResult)
@@ -580,20 +580,20 @@ func (s *Server) evaluateDomain(
 		"trademark_match":      trademarkResult.MatchedTrademark,
 		"trademark_confidence": trademarkResult.Confidence,
 		"close_matches":        closeMatches,
-	}).Debug("resolved trademark result")
+	}).Info("resolved trademark result")
 
 	viceResult := s.viceScorer.Score(profile)
 	logger.WithFields(logrus.Fields{
 		"vice_score":      viceResult.Score,
 		"vice_categories": viceResult.Categories,
 		"vice_confidence": viceResult.Confidence,
-	}).Debug("resolved vice result")
+	}).Info("resolved vice result")
 
 	overall := scoring.CombineRecommendation(trademarkResult, viceResult)
 	logger.WithFields(logrus.Fields{
 		"overall_recommendation": overall.Recommendation,
 		"overall_confidence":     overall.Confidence,
-	}).Debug("computed overall recommendation")
+	}).Info("computed overall recommendation")
 
 	commercialOverride := false
 	commercialSource := ""
@@ -624,7 +624,7 @@ func (s *Server) evaluateDomain(
 		"commercial_source":     commercialSource,
 		"commercial_similarity": commercialSimilarity,
 		"commercial_price":      commercialPrice,
-	}).Debug("preparing AI decision input")
+	}).Info("preparing AI decision input")
 
 	decision, err := s.generateDecision(
 		ctx,
@@ -683,7 +683,7 @@ func (s *Server) evaluateDomain(
 		"ai_recommendation":  decision.Recommendation,
 		"ai_confidence":      decision.Confidence,
 		"ai_ms":              aiDuration.Milliseconds(),
-	}).Debug("AI decision completed")
+	}).Info("AI decision completed")
 
 	eval := store.Evaluation{
 		Domain:                domainValue,
@@ -713,7 +713,7 @@ func (s *Server) evaluateDomain(
 		"vice_score":             eval.ViceScore,
 		"overall_recommendation": eval.OverallRecommendation,
 		"processing_ms":          eval.ProcessingTimeMs,
-	}).Debug("domain evaluation prepared for persistence")
+	}).Info("domain evaluation prepared for persistence")
 
 	return result
 }
