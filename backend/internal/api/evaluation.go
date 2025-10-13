@@ -681,7 +681,7 @@ func (s *Server) generateDecision(
 	result, err := s.callAIWithRetry(ctx, input)
 	if err != nil {
 		logrus.WithError(err).Error("ai explainer failed; evaluation cannot proceed without AI")
-		return Decision{}, fmt.Errorf("ai evaluation required but failed: %w", err)
+		return ai.Decision{}, fmt.Errorf("ai evaluation required but failed: %w", err)
 	}
 
 	if strings.TrimSpace(result.Narrative) != "" {
