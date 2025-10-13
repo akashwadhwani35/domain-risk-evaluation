@@ -67,7 +67,7 @@ var ErrDisabled = errors.New("ai explainer disabled")
 func NewClient(cfg Config) (*Client, error) {
 	cfg.Model = strings.TrimSpace(cfg.Model)
 	if cfg.Model == "" {
-		cfg.Model = "gpt-4.1-mini"
+		cfg.Model = "gpt-4.1-nano"
 	}
 	cfg.BaseURL = strings.TrimSpace(cfg.BaseURL)
 	if cfg.BaseURL == "" {
@@ -81,7 +81,7 @@ func NewClient(cfg Config) (*Client, error) {
 		temp = 0.2
 	}
 	if cfg.MaxTokens <= 0 {
-		cfg.MaxTokens = 1500
+		cfg.MaxTokens = 300
 	}
 	client := &Client{
 		httpClient:  &http.Client{Timeout: 30 * time.Second},
@@ -255,27 +255,19 @@ func (c *Client) buildUserPrompt(input ExplanationInput) string {
 	} else if input.CommercialOverride && input.CommercialPrice > 0 {
 		builder.WriteString(fmt.Sprintf("Commercial signal: historical sale around $%.0f supports market demand.\n", input.CommercialPrice))
 	}
-	builder.WriteString("Heuristic trademark score suggestion (0-5): ")
-	fmt.Fprintf(builder, "%d\n", input.Trademark.Score)
-	builder.WriteString("Heuristic vice score suggestion (0-5): ")
-	fmt.Fprintf(builder, "%d\n", input.Vice.Score)
-	builder.WriteString("Use these heuristics as a starting point and adjust if the evidence supports a different outcome.\n")
+	builder.WriteString("Adjust scores based on evidence if needed.\n")
 	if len(input.CloseMatches) > 0 {
-		builder.WriteString("Treat any listed mark that exactly matches the second-level label as a potential high-risk conflict.\n")
+		builder.WriteString("Exact matches indicate high-risk conflict.\n")
 	} else {
-		builder.WriteString("No exact USPTO matches were supplied; assume no direct conflict unless other evidence indicates otherwise.\n")
+		builder.WriteString("No exact USPTO matches found.\n")
 	}
 	second := strings.TrimSpace(input.SecondLevel)
 	top := strings.TrimSpace(input.TopLevel)
 	if second != "" {
-		builder.WriteString(fmt.Sprintf("Anchor the first sentence of the narrative in the meaning of the label \"%s\" and how the .%s TLD influences intent.\n", second, top))
+		builder.WriteString(fmt.Sprintf("Write two-sentence narrative: first describes \"%s\" intent with .%s context; second states action with justification. Vary openings, sound human, cite evidence.\n", second, top))
+	} else {
+		builder.WriteString("Write two-sentence narrative: first describes domain intent; second states action with justification. Vary openings, sound human, cite evidence.\n")
 	}
-	builder.WriteString("Sound like a human analyst weighing intent, evidence, and risk cues—use fresh vocabulary each time.\n")
-	builder.WriteString("Avoid repeating the exact domain string; instead, paraphrase the label's meaning in natural language.\n")
-	builder.WriteString("Open the first sentence with a vivid description or plausible use case rather than a stock phrase.\n")
-	builder.WriteString("Let the second sentence start with an action-oriented verb or directive (e.g., 'Greenlight', 'Flag', 'Escalate for legal eyes') while justifying the decision; never use the exact same starter twice.\n")
-	builder.WriteString("Explain the likely use of the name, cite any trademark or vice evidence you spot, and mention commercial signals if they matter.\n")
-	builder.WriteString("Populate the JSON fields with your final judgement. Narrative must include two sentences separated by a newline; vary how you introduce the recommendation in the second sentence while clearly stating the action and justification.\n")
 	return builder.String()
 }
 
