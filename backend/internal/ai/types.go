@@ -7,4 +7,6 @@ type Decision struct {
 	ViceScore      *int     `json:"vice_score,omitempty"`
 	Recommendation string   `json:"recommendation"`
 	Confidence     *float64 `json:"confidence,omitempty"`
+	FamousMatch    *bool    `json:"famous_match,omitempty"`
+	FamousLabel    string   `json:"famous_label,omitempty"`
 }

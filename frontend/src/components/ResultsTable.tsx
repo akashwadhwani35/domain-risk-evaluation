@@ -32,6 +32,17 @@ interface ResultsTableProps {
   batchName?: string;
 }
 
+const SORT_OPTIONS = [
+  { value: 'created_desc', label: 'Newest first' },
+  { value: 'created_asc', label: 'Oldest first' },
+  { value: 'domain_asc', label: 'Domain A–Z' },
+  { value: 'domain_desc', label: 'Domain Z–A' },
+  { value: 'trademark_desc', label: 'Trademark high → low' },
+  { value: 'trademark_asc', label: 'Trademark low → high' },
+  { value: 'vice_desc', label: 'Vice high → low' },
+  { value: 'vice_asc', label: 'Vice low → high' }
+];
+
 export default function ResultsTable({
   data,
   total,
@@ -45,8 +56,6 @@ export default function ResultsTable({
   filters,
   batchName
 }: ResultsTableProps) {
-  console.log('[ResultsTable] Render - data:', data?.length, 'total:', total, 'loading:', loading, 'batchName:', batchName);
-
   const [search, setSearch] = useState('');
   const [minScore, setMinScore] = useState<number | undefined>(undefined);
   const [minViceScore, setMinViceScore] = useState<number | undefined>(undefined);
@@ -57,10 +66,8 @@ export default function ResultsTable({
   const safeTldOptions = Array.isArray(tldOptions) ? tldOptions : [];
   const rows = Array.isArray(data) ? data : [];
 
-  console.log('[ResultsTable] Rows to display:', rows.length, 'first row:', rows[0]);
-
   useEffect(() => {
-    const handle = setTimeout(() => {
+    const handle = window.setTimeout(() => {
       onQueryChange({
         q: search || undefined,
         minScore,
@@ -69,8 +76,8 @@ export default function ResultsTable({
         recommendation,
         sort
       });
-    }, 250);
-    return () => clearTimeout(handle);
+    }, 220);
+    return () => window.clearTimeout(handle);
   }, [search, minScore, minViceScore, tld, recommendation, sort, onQueryChange]);
 
   useEffect(() => {
@@ -85,22 +92,23 @@ export default function ResultsTable({
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / pageSize)), [total, pageSize]);
 
   return (
-    <section className="bg-slate-900 border border-slate-800 rounded-xl shadow-lg">
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between p-6 border-b border-slate-800">
-        <div>
-          <h2 className="text-lg font-semibold">
-            Evaluation Results
-            {batchName ? <span className="text-slate-400"> • {batchName}</span> : null}
-          </h2>
-          <p className="text-sm text-slate-400">{total.toLocaleString()} domains evaluated.</p>
-        </div>
-        <div className="flex flex-wrap gap-3">
+    <section className="rounded-2xl border border-slate-800 bg-slate-900/70 shadow-sm">
+      <div className="space-y-5 p-5">
+        <header className="flex flex-col gap-1">
+          <h2 className="text-base font-semibold text-slate-100">Evaluation results</h2>
+          <p className="text-sm text-slate-400">
+            {batchName ? `${batchName} • ` : ''}
+            {total.toLocaleString()} domains scored.
+          </p>
+        </header>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <input
             type="search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search domain or mark"
-            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500"
+            placeholder="Search domain or trademark"
+            className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-slate-200 focus:outline-none"
           />
           <select
             value={minScore ?? ''}
@@ -108,9 +116,10 @@ export default function ResultsTable({
               const value = event.target.value;
               setMinScore(value === '' ? undefined : Number(value));
             }}
-            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500"
+            className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-200 focus:border-slate-200 focus:outline-none"
           >
-            <option value="">All scores</option>
+            <option value="">All trademark scores</option>
+            <option value="5">Trademark ≥ 5</option>
             <option value="4">Trademark ≥ 4</option>
             <option value="3">Trademark ≥ 3</option>
             <option value="2">Trademark ≥ 2</option>
@@ -121,25 +130,12 @@ export default function ResultsTable({
               const value = event.target.value;
               setMinViceScore(value === '' ? undefined : Number(value));
             }}
-            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500"
+            className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-200 focus:border-slate-200 focus:outline-none"
           >
             <option value="">All vice scores</option>
             <option value="5">Vice ≥ 5</option>
             <option value="4">Vice ≥ 4</option>
             <option value="3">Vice ≥ 3</option>
-            <option value="2">Vice ≥ 2</option>
-          </select>
-          <select
-            value={tld}
-            onChange={(event) => setTld(event.target.value)}
-            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500"
-          >
-            <option value="">All TLDs</option>
-            {safeTldOptions.map((option) => (
-              <option key={option} value={option}>
-                .{option}
-              </option>
-            ))}
           </select>
           <select
             value={recommendation ?? ''}
@@ -147,93 +143,110 @@ export default function ResultsTable({
               const value = event.target.value;
               setRecommendation(value === '' ? undefined : value);
             }}
-            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500"
+            className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-200 focus:border-slate-200 focus:outline-none"
           >
             <option value="">All recommendations</option>
             <option value="BLOCK">Block</option>
             <option value="REVIEW">Review</option>
-            <option value="ALLOW_WITH_CAUTION">Allow w/ Caution</option>
+            <option value="ALLOW_WITH_CAUTION">Allow with caution</option>
             <option value="ALLOW">Allow</option>
           </select>
           <select
             value={sort}
             onChange={(event) => setSort(event.target.value)}
-            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500"
+            className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-200 focus:border-slate-200 focus:outline-none"
           >
-            <option value="created_desc">Newest first</option>
-            <option value="created_asc">Oldest first</option>
-            <option value="domain_asc">Domain A-Z</option>
-            <option value="domain_desc">Domain Z-A</option>
-            <option value="trademark_desc">Trademark score (high → low)</option>
-            <option value="trademark_asc">Trademark score (low → high)</option>
-            <option value="vice_desc">Vice score (high → low)</option>
-            <option value="vice_asc">Vice score (low → high)</option>
+            {SORT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
           </select>
-          <ExportButtons onExport={onExport} disabled={loading} />
+          <select
+            value={tld}
+            onChange={(event) => setTld(event.target.value)}
+            className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-200 focus:border-slate-200 focus:outline-none"
+          >
+            <option value="">All TLDs</option>
+            {safeTldOptions.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+          <div className="flex items-center gap-2 text-xs text-slate-400 lg:col-span-2">
+            <span>
+              Page {page + 1} of {totalPages}
+            </span>
+            <span className="hidden sm:inline">•</span>
+            <ExportButtons onExport={onExport} disabled={loading || rows.length === 0} />
+          </div>
         </div>
-      </header>
+      </div>
 
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-sm">
-          <thead className="bg-slate-800/60 uppercase text-xs text-slate-400">
+      <div className="overflow-x-auto border-t border-slate-800">
+        <table className="min-w-full divide-y divide-slate-800 text-sm">
+          <thead className="bg-slate-900/40 text-xs uppercase tracking-wide text-slate-400">
             <tr>
               <th className="px-4 py-3 text-left">Domain</th>
-              <th className="px-4 py-3 text-left">Trademark Score</th>
-              <th className="px-4 py-3 text-left">Trademark Type</th>
-              <th className="px-4 py-3 text-left">Matched Trademark</th>
-              <th className="px-4 py-3 text-left">Vice Score</th>
-              <th className="px-4 py-3 text-left">Vice Categories</th>
+              <th className="px-4 py-3 text-left">Trademark</th>
+              <th className="px-4 py-3 text-left">Matched mark</th>
+              <th className="px-4 py-3 text-left">Vice</th>
               <th className="px-4 py-3 text-left">Recommendation</th>
-              <th className="px-4 py-3 text-left w-2/5">AI Explanation</th>
+              <th className="px-4 py-3 text-left">Explanation</th>
               <th className="px-4 py-3 text-right">Confidence</th>
               <th className="px-4 py-3 text-left">Commercial</th>
               <th className="px-4 py-3 text-right">Evaluated</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-slate-800">
             {loading ? (
               <tr>
-                <td colSpan={11} className="px-4 py-8 text-center text-slate-400">
+                <td colSpan={9} className="px-4 py-8 text-center text-slate-400">
                   Processing…
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={11} className="px-4 py-8 text-center text-slate-400">
-                  No results yet. Upload files and run an evaluation.
+                <td colSpan={9} className="px-4 py-8 text-center text-slate-400">
+                  No results yet. Upload a CSV and run an evaluation.
                 </td>
               </tr>
             ) : (
               rows.map((row) => (
-                <tr key={row.id} className="odd:bg-slate-900 even:bg-slate-900/60">
+                <tr key={row.id} className="bg-slate-900/60 hover:bg-slate-900/80">
                   <td className="px-4 py-3 font-medium text-slate-100">{row.domain}</td>
                   <td className="px-4 py-3">
-                    <ScoreBadge variant="trademark" score={row.trademark_score} label={row.trademark_score} />
+                    <div className="flex items-center gap-2">
+                      <ScoreBadge variant="trademark" score={row.trademark_score} label={row.trademark_score} />
+                      <span className="text-xs text-slate-400">{row.trademark_type || '—'}</span>
+                    </div>
                   </td>
-                  <td className="px-4 py-3 text-slate-300">{row.trademark_type || '—'}</td>
-                  <td className="px-4 py-3 text-slate-200">{row.matched_trademark || '—'}</td>
+                  <td className="px-4 py-3 text-slate-300">{row.matched_trademark || '—'}</td>
                   <td className="px-4 py-3">
-                    <ScoreBadge variant="vice" score={row.vice_score} label={row.vice_score} />
+                    <div className="flex items-center gap-2">
+                      <ScoreBadge variant="vice" score={row.vice_score} label={row.vice_score} />
+                      <span className="text-xs text-slate-400">
+                        {(row.vice_categories ?? []).join(', ') || '—'}
+                      </span>
+                    </div>
                   </td>
-                  <td className="px-4 py-3 text-slate-300">{(row.vice_categories ?? []).join(', ') || '—'}</td>
                   <td className="px-4 py-3">
                     <ScoreBadge variant="overall" label={row.overall_recommendation} />
                   </td>
-                  <td className="px-4 py-3 text-slate-300 whitespace-pre-line align-top min-w-[360px]">
-                    {row.explanation || '—'}
-                  </td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-4 py-3 whitespace-pre-line text-slate-200">{row.explanation || '—'}</td>
+                  <td className="px-4 py-3 text-right text-slate-300">
                     {row.confidence.toFixed(2)}
                   </td>
-                  <td className="px-4 py-3 text-left text-xs">
+                  <td className="px-4 py-3 text-xs text-slate-400">
                     {row.commercial_override
-                      ? `Override — ${row.commercial_source || 'high-value sale'} (${Math.round(row.commercial_similarity * 100)}% match)`
+                      ? `Override — ${row.commercial_source || 'High sale'} (${Math.round(row.commercial_similarity * 100)}% match)`
                       : row.commercial_source
                         ? `Signal — ${row.commercial_source} (${Math.round(row.commercial_similarity * 100)}% match)`
-                        : 'No'}
+                        : '—'}
                   </td>
                   <td className="px-4 py-3 text-right text-xs text-slate-400">
-                    {dayjs(row.created_at).format('YYYY-MM-DD HH:mm:ss')}
+                    {dayjs(row.created_at).format('YYYY-MM-DD HH:mm')}
                   </td>
                 </tr>
               ))
@@ -242,8 +255,8 @@ export default function ResultsTable({
         </table>
       </div>
 
-      <footer className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-4 border-t border-slate-800 text-sm">
-        <span className="text-slate-400">
+      <footer className="flex flex-col gap-3 border-t border-slate-800 px-5 py-4 text-sm text-slate-300 sm:flex-row sm:items-center sm:justify-between">
+        <span>
           Page {page + 1} of {totalPages}
         </span>
         <div className="flex items-center gap-2">
@@ -251,8 +264,12 @@ export default function ResultsTable({
             type="button"
             onClick={() => onPageChange(Math.max(0, page - 1))}
             disabled={page === 0 || loading}
-            className={clsx('px-3 py-1 rounded-md border border-slate-700',
-              page === 0 || loading ? 'text-slate-500 cursor-not-allowed' : 'text-slate-200 hover:bg-slate-800')}
+            className={clsx(
+              'rounded-full px-3 py-1 transition-colors',
+              page === 0 || loading
+                ? 'cursor-not-allowed bg-slate-800 text-slate-500'
+                : 'bg-slate-100 text-slate-900 hover:bg-white'
+            )}
           >
             Previous
           </button>
@@ -260,8 +277,12 @@ export default function ResultsTable({
             type="button"
             onClick={() => onPageChange(Math.min(totalPages - 1, page + 1))}
             disabled={page + 1 >= totalPages || loading}
-            className={clsx('px-3 py-1 rounded-md border border-slate-700',
-              page + 1 >= totalPages || loading ? 'text-slate-500 cursor-not-allowed' : 'text-slate-200 hover:bg-slate-800')}
+            className={clsx(
+              'rounded-full px-3 py-1 transition-colors',
+              page + 1 >= totalPages || loading
+                ? 'cursor-not-allowed bg-slate-800 text-slate-500'
+                : 'bg-slate-100 text-slate-900 hover:bg-white'
+            )}
           >
             Next
           </button>
@@ -273,14 +294,14 @@ export default function ResultsTable({
 
 function ExportButtons({ onExport, disabled }: { onExport: (format: 'csv' | 'json') => Promise<void>; disabled: boolean }) {
   return (
-    <div className="flex gap-2">
+    <div className="flex items-center gap-2">
       <button
         type="button"
         disabled={disabled}
         onClick={() => onExport('csv')}
         className={clsx(
-          'px-3 py-2 rounded-lg text-sm border border-slate-700 hover:bg-slate-800 transition-colors',
-          disabled && 'opacity-50 cursor-not-allowed'
+          'rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
+          disabled ? 'cursor-not-allowed bg-slate-800 text-slate-500' : 'bg-slate-100 text-slate-900 hover:bg-white'
         )}
       >
         Export CSV
@@ -290,8 +311,8 @@ function ExportButtons({ onExport, disabled }: { onExport: (format: 'csv' | 'jso
         disabled={disabled}
         onClick={() => onExport('json')}
         className={clsx(
-          'px-3 py-2 rounded-lg text-sm border border-slate-700 hover:bg-slate-800 transition-colors',
-          disabled && 'opacity-50 cursor-not-allowed'
+          'rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
+          disabled ? 'cursor-not-allowed bg-slate-800 text-slate-500' : 'bg-slate-100 text-slate-900 hover:bg-white'
         )}
       >
         Export JSON

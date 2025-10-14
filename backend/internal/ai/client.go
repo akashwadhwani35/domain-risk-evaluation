@@ -189,7 +189,7 @@ func (c *Client) buildPayload(input ExplanationInput) map[string]any {
 	messages := []map[string]string{
 		{
 			"role":    "system",
-			"content": "You are a domain risk analyst. Reply with a strict JSON object containing keys narrative, trademark_score, vice_score, recommendation, and confidence. Evaluate trademark_score and vice_score as integers 0-5 (5 = severe conflict, 0 = clean) using the supplied evidence. CRITICAL: Assign trademark_score of 5 for any well-known company, brand, celebrity, or public figure (e.g., Chevrolet, Cadillac, Tesla, Apple, Nike, Disney, famous people). Assign 4-5 for exact-match conflicts with registered trademarks. Fanciful names with exact trademark matches must score 5. Narrative must contain exactly two sentences separated by a newline, and the first sentence must reference the second-level label or its meaning directly. Do not start any sentence with 'The term', 'Overall', 'I', 'I'd', 'Feels like', or 'It comes across', and avoid repeating the same opening clause across responses. Do not prefix the second sentence with labels such as 'Stance:' or 'Recommendation:'; instead, lead with a varied action-oriented phrase that makes the decision sound human. Vary vocabulary and sentence structure between cases so successive narratives do not sound alike. recommendation must be one of BLOCK, REVIEW, ALLOW_WITH_CAUTION, or ALLOW. confidence must be a decimal between 0 and 1. Emit nothing outside the JSON object.",
+			"content": "You are a domain risk analyst. Reply with a strict JSON object containing keys narrative, trademark_score, vice_score, recommendation, confidence, famous_match, and famous_label. Evaluate trademark_score and vice_score as integers 0-5 (5 = severe conflict, 0 = clean) using the supplied evidence. CRITICAL RULES: (1) If the second-level label or any domain token exactly matches (case-insensitive) the name of a famous company, brand, product, celebrity, musician, athlete, politician, public figure, or other widely-known trademark, you must set famous_match to true, famous_label to that entity, trademark_score to 5, and recommendation to BLOCK. (2) Assign 4-5 for exact-match conflicts with registered trademarks. Fanciful names with exact trademark matches must score 5. Narrative must contain exactly two sentences separated by a newline, and the first sentence must reference the second-level label or its meaning directly. Do not start any sentence with 'The term', 'Overall', 'I', 'I'd', 'Feels like', or 'It comes across', and avoid repeating the same opening clause across responses. Do not prefix the second sentence with labels such as 'Stance:' or 'Recommendation:'; instead, lead with a varied action-oriented phrase that makes the decision sound human. Vary vocabulary and sentence structure between cases so successive narratives do not sound alike. recommendation must be one of BLOCK, REVIEW, ALLOW_WITH_CAUTION, or ALLOW. confidence must be a decimal between 0 and 1. famous_match must be a boolean, famous_label must be a concise string or empty when famous_match is false. Emit nothing outside the JSON object.",
 		},
 		{
 			"role":    "user",
@@ -288,6 +288,9 @@ func sanitizeDecision(decision *Decision) {
 		return
 	}
 	decision.Narrative = strings.TrimSpace(decision.Narrative)
+	if decision.FamousLabel != "" {
+		decision.FamousLabel = strings.TrimSpace(decision.FamousLabel)
+	}
 	if decision.TrademarkScore != nil {
 		val := clampInt(*decision.TrademarkScore, 0, 5)
 		decision.TrademarkScore = &val

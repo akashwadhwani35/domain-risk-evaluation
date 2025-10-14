@@ -650,6 +650,14 @@ func (s *Server) evaluateDomain(
 		return result
 	}
 
+	if decision.FamousMatch != nil && *decision.FamousMatch {
+		if decision.TrademarkScore == nil || *decision.TrademarkScore < 5 {
+			score := 5
+			decision.TrademarkScore = &score
+		}
+		decision.Recommendation = "BLOCK"
+	}
+
 	if decision.TrademarkScore != nil {
 		trademarkResult.Score = clampScore(*decision.TrademarkScore)
 	}
@@ -657,19 +665,26 @@ func (s *Server) evaluateDomain(
 		viceResult.Score = clampScore(*decision.ViceScore)
 	}
 
-	overall = scoring.CombineRecommendation(trademarkResult, viceResult)
-	if commercialOverride {
-		switch overall.Recommendation {
-		case "BLOCK":
-			overall.Recommendation = "REVIEW"
-		case "REVIEW":
-			overall.Recommendation = "ALLOW_WITH_CAUTION"
-		}
-	}
+	combined := scoring.CombineRecommendation(trademarkResult, viceResult)
+	overall.Recommendation = combined.Recommendation
+	overall.Confidence = combined.Confidence
 
-	if rec := strings.ToUpper(strings.TrimSpace(decision.Recommendation)); rec != "" {
-		overall.Recommendation = rec
+	finalRec := strings.ToUpper(strings.TrimSpace(decision.Recommendation))
+	if finalRec == "" {
+		finalRec = overall.Recommendation
 	}
+	if trademarkResult.Score >= 5 && finalRec != "BLOCK" {
+		logrus.WithFields(logrus.Fields{
+			"job":               jobID,
+			"batch_id":          batchID,
+			"domain":            domainValue,
+			"ai_recommendation": finalRec,
+			"trademark_score":   trademarkResult.Score,
+		}).Warn("forcing BLOCK due to high trademark score")
+		finalRec = "BLOCK"
+	}
+	overall.Recommendation = finalRec
+
 	if decision.Confidence != nil {
 		conf := clampConfidence(*decision.Confidence)
 		overall.Confidence = conf
@@ -780,6 +795,8 @@ func (s *Server) generateDecision(
 	decision.TrademarkScore = result.TrademarkScore
 	decision.ViceScore = result.ViceScore
 	decision.Confidence = result.Confidence
+	decision.FamousMatch = result.FamousMatch
+	decision.FamousLabel = strings.TrimSpace(result.FamousLabel)
 
 	return decision, nil
 }

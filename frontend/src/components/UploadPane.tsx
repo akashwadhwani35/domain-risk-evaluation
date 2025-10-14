@@ -29,11 +29,11 @@ export default function UploadPane({ onProcess, onEvaluate, busy }: UploadPanePr
       }
 
       if (!batchName.trim()) {
-        setError('Please provide a batch name.');
+        setError('Enter a batch name.');
         return;
       }
       if (!ownerName.trim()) {
-        setError('Please provide an owner name.');
+        setError('Enter an owner name.');
         return;
       }
 
@@ -53,97 +53,89 @@ export default function UploadPane({ onProcess, onEvaluate, busy }: UploadPanePr
   };
 
   return (
-    <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg">
-      <header className="flex items-center justify-between gap-4 mb-6">
+    <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 shadow-sm">
+      <header className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold">Input Files</h2>
-          <p className="text-sm text-slate-400">Upload a domains CSV or rely on the cached catalog already on the server.</p>
+          <h2 className="text-sm font-semibold text-slate-100">Dataset</h2>
+          <p className="text-xs text-slate-400">
+            Upload a CSV or run the evaluation for the latest batch already on the server.
+          </p>
         </div>
         <button
           type="button"
           onClick={handleSubmit}
           disabled={busy || processing}
           className={clsx(
-            'px-4 py-2 rounded-lg font-medium transition-colors',
+            'rounded-full px-4 py-1.5 text-sm font-medium transition-colors',
             busy || processing
               ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
-              : 'bg-brand-500 hover:bg-brand-600 text-white'
+              : 'bg-slate-100 text-slate-900 hover:bg-white'
           )}
         >
-          {processing || busy ? 'Processing…' : 'Process & Evaluate'}
+          {processing || busy ? 'Working…' : csvFile ? 'Upload & evaluate' : 'Evaluate batch'}
         </button>
       </header>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6">
-        <label className="flex flex-col gap-2 text-sm">
-          <span className="text-slate-300 font-medium">Batch Name</span>
+      <div className="mt-5 space-y-3 text-sm">
+        <label className="flex flex-col gap-1 text-slate-300">
+          <span className="text-xs uppercase tracking-wide text-slate-500">Domains CSV</span>
           <input
-            type="text"
-            value={batchName}
-            onChange={(event) => setBatchName(event.target.value)}
-            placeholder="e.g. Demo Upload"
-            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500"
+            type="file"
+            accept=".csv"
+            onChange={(event) => setCsvFile(event.target.files?.[0] ?? null)}
+            className="block w-full rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-200 file:mr-3 file:rounded-md file:border-0 file:bg-slate-800 file:px-3 file:py-2 file:text-slate-200 hover:file:bg-slate-700"
           />
+          {csvFile && <span className="text-xs text-slate-500">{csvFile.name}</span>}
         </label>
-        <label className="flex flex-col gap-2 text-sm">
-          <span className="text-slate-300 font-medium">Owner Name</span>
-          <input
-            type="text"
-            value={ownerName}
-            onChange={(event) => setOwnerName(event.target.value)}
-            placeholder="Who owns this CSV?"
-            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-500"
-          />
-        </label>
-      </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-        <FileInput label="Domains CSV" accept=".csv" onSelect={setCsvFile} selected={csvFile?.name} />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label className="flex flex-col gap-1 text-slate-300">
+            <span className="text-xs uppercase tracking-wide text-slate-500">Batch name</span>
+            <input
+              type="text"
+              value={batchName}
+              onChange={(event) => setBatchName(event.target.value)}
+              placeholder="e.g. October upload"
+              className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-slate-200 focus:outline-none"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-slate-300">
+            <span className="text-xs uppercase tracking-wide text-slate-500">Owner</span>
+            <input
+              type="text"
+              value={ownerName}
+              onChange={(event) => setOwnerName(event.target.value)}
+              placeholder="Team or person"
+              className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-slate-200 focus:outline-none"
+            />
+          </label>
+        </div>
       </div>
 
       {lastResponse && (
-        <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-6 text-sm">
-          <Stat label="Batch" value={lastResponse.batch_name} helper={`Owner: ${lastResponse.owner}`} />
-          <Stat label="Rows" value={lastResponse.row_count.toLocaleString()} helper={`Unique: ${lastResponse.unique_domains.toLocaleString()}`} />
-          <Stat label="Duplicates" value={lastResponse.duplicate_rows.toLocaleString()} helper={`Existing: ${lastResponse.existing_domains.toLocaleString()}`} />
-          <Stat label="Already Evaluated" value={lastResponse.processed_domains.toLocaleString()} helper="Will be reused" />
-          <Stat label="Marks In DB" value={lastResponse.marks_count.toLocaleString()} />
-        </dl>
+        <div className="mt-5 rounded-xl border border-slate-800 bg-slate-950/40 p-4 text-xs text-slate-300">
+          <p className="font-semibold text-slate-200">{lastResponse.batch_name}</p>
+          <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-3">
+            <Stat label="Rows" value={lastResponse.row_count} />
+            <Stat label="Unique domains" value={lastResponse.unique_domains} />
+            <Stat label="Already evaluated" value={lastResponse.processed_domains} />
+            <Stat label="Duplicates" value={lastResponse.duplicate_rows} />
+            <Stat label="Existing matches" value={lastResponse.existing_domains} />
+            <Stat label="Marks in DB" value={lastResponse.marks_count} />
+          </div>
+        </div>
       )}
 
-      {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
+      {error && <p className="mt-4 text-xs text-red-400">{error}</p>}
     </section>
   );
 }
 
-interface FileInputProps {
-  label: string;
-  accept: string;
-  selected?: string;
-  onSelect: (file: File | null) => void;
-}
-
-function FileInput({ label, accept, selected, onSelect }: FileInputProps) {
+function Stat({ label, value }: { label: string; value: number }) {
   return (
-    <label className="flex flex-col gap-2 text-sm">
-      <span className="text-slate-300 font-medium">{label}</span>
-      <input
-        type="file"
-        accept={accept}
-        onChange={(event) => onSelect(event.target.files?.[0] ?? null)}
-        className="block w-full text-sm text-slate-200 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-slate-700 file:text-slate-200 hover:file:bg-slate-600"
-      />
-      {selected && <span className="text-xs text-slate-500">{selected}</span>}
-    </label>
-  );
-}
-
-function Stat({ label, value, helper }: { label: string; value: string | number; helper?: string }) {
-  return (
-    <div className="bg-slate-800 rounded-lg p-4">
-      <dt className="text-slate-400">{label}</dt>
-      <dd className="text-xl font-semibold">{value}</dd>
-      {helper && <p className="text-xs text-slate-500 mt-1">{helper}</p>}
+    <div className="flex items-center justify-between text-slate-400">
+      <span>{label}</span>
+      <span className="font-medium text-slate-100">{value.toLocaleString()}</span>
     </div>
   );
 }

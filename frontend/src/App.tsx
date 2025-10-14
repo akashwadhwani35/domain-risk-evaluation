@@ -158,17 +158,6 @@ export default function App() {
   const filterSort = normalizeSort(filters.sort);
 
   const loadResults = useCallback(async () => {
-    console.log('[loadResults] Starting fetch with params:', {
-      filterQuery,
-      filterMinScore,
-      filterMinViceScore,
-      filterTld,
-      filterRecommendation,
-      filterSort,
-      page,
-      pageSize: PAGE_SIZE,
-      batchId: selectedBatch?.id
-    });
     setLoading(true);
     try {
       const batchId = selectedBatch?.id;
@@ -183,20 +172,9 @@ export default function App() {
         pageSize: PAGE_SIZE,
         batchId
       });
-      console.log('[loadResults] API response:', {
-        itemsCount: response.items?.length,
-        total: response.total,
-        firstItem: response.items?.[0],
-        rawResponse: response
-      });
       const mapped = response.items.map(mapEvaluation);
-      console.log('[loadResults] Mapped evaluations:', {
-        count: mapped.length,
-        firstMapped: mapped[0]
-      });
       setEvaluations(mapped);
       setTotal(response.total);
-      console.log('[loadResults] State updated - evaluations count:', mapped.length, 'total:', response.total);
     } catch (err) {
       console.error('[loadResults] Failed to fetch results', err);
     } finally {
@@ -220,32 +198,25 @@ export default function App() {
     try {
       const config = await fetchConfig();
       setTldOptions(Array.isArray(config.tlds) ? config.tlds : []);
-      console.log('[config] loaded', config);
     } catch (err) {
       console.error('Failed to load config', err);
     }
   }, []);
 
   const loadBatches = useCallback(async (preferredId?: number) => {
-    console.log('[loadBatches] Starting - preferredId:', preferredId, 'selectedBatchIdRef.current:', selectedBatchIdRef.current);
     setBatchLoading(true);
     try {
       const response = await listBatches();
       const next = Array.isArray(response.items) ? response.items : [];
-      console.log('[loadBatches] Fetched batches:', next.length, 'batches');
       setBatches(next);
 
       const fallbackId = preferredId ?? selectedBatchIdRef.current ?? (next.length > 0 ? next[0].id : null);
-      console.log('[loadBatches] Fallback batch ID to select:', fallbackId);
       if (fallbackId) {
         const match = next.find((batch) => batch.id === fallbackId);
         if (match) {
-          console.log('[loadBatches] Found matching batch in list:', match.name);
           setSelectedBatch(match);
         } else {
-          console.log('[loadBatches] Batch not in list, fetching details for ID:', fallbackId);
           const details = await fetchBatch(fallbackId);
-          console.log('[loadBatches] Fetched batch details:', details.name);
           setSelectedBatch(details);
           setBatches((prev) => {
             const filtered = prev.filter((item) => item.id !== details.id);
@@ -253,7 +224,6 @@ export default function App() {
           });
         }
       } else {
-        console.log('[loadBatches] No batch to select');
         setSelectedBatch(null);
       }
     } catch (err) {
@@ -377,6 +347,42 @@ export default function App() {
     loadBatches().catch((err) => console.error(err));
   }, [loadBatches]);
 
+  const summaryCounts = useMemo(() => {
+    const base = {
+      BLOCK: 0,
+      REVIEW: 0,
+      ALLOW_WITH_CAUTION: 0,
+      ALLOW: 0,
+    };
+    evaluations.forEach((row) => {
+      const key = (row.overall_recommendation ?? '').toUpperCase();
+      if (key in base) {
+        base[key as keyof typeof base] += 1;
+      }
+    });
+    return base;
+  }, [evaluations]);
+
+  const summaryItems = useMemo(
+    () => [
+      { label: 'Block', value: summaryCounts.BLOCK, accent: 'bg-red-500/20 text-red-200' },
+      { label: 'Review', value: summaryCounts.REVIEW, accent: 'bg-sky-500/20 text-sky-200' },
+      { label: 'Caution', value: summaryCounts.ALLOW_WITH_CAUTION, accent: 'bg-amber-500/20 text-amber-200' },
+      { label: 'Allow', value: summaryCounts.ALLOW, accent: 'bg-emerald-500/20 text-emerald-200' },
+    ],
+    [summaryCounts]
+  );
+
+  const progressPercent = useMemo(() => {
+    if (!progress.total) return 0;
+    return Math.min(100, Math.round((progress.processed / progress.total) * 100));
+  }, [progress.processed, progress.total]);
+
+  const liveSlice = useMemo(() => liveEvaluations.slice(0, 6), [liveEvaluations]);
+  const recentBatches = useMemo(() => batches.slice(0, 6), [batches]);
+  const remainingForSelected = selectedBatch ? Math.max(selectedBatch.unique_domains - selectedBatch.processed_domains, 0) : 0;
+  const progressNote = evaluationMessage ?? progress.message ?? '';
+
   useEffect(() => {
     syncEvaluationStatus().catch((err) => console.error('Failed to sync evaluation status', err));
   }, [syncEvaluationStatus]);
@@ -394,7 +400,6 @@ export default function App() {
     socketRef.current = socket;
 
     socket.onopen = () => {
-      console.log('[ws] opened', { jobId: job.job_id, total: job.total });
       setProgress({ status: 'running', processed: 0, total: job.total, message: 'Evaluation started' });
       if (pageRef.current === 0) {
         setEvaluations([]);
@@ -408,14 +413,12 @@ export default function App() {
     };
 
     socket.onclose = () => {
-      console.log('[ws] closed', { jobId: job.job_id });
       socketRef.current = null;
     };
 
     socket.onmessage = (event) => {
       try {
         const payload: EvaluationEvent = JSON.parse(event.data);
-        console.log('[ws] message', payload);
         if (!payload || payload.job_id !== job.job_id) {
           return;
         }
@@ -588,17 +591,17 @@ export default function App() {
             setEvaluationMessage(payload.message ?? 'Evaluation failed.');
         }
           setEvaluationMessage(payload.message ?? 'Evaluation failed.');
-        }
-      } catch (err) {
-        console.error('Failed to parse evaluation event', err);
       }
-    };
+    } catch (err) {
+      console.error('Failed to parse evaluation event', err);
+    }
+  };
 
-    return () => {
-      socket.close();
-      socketRef.current = null;
-    };
-  }, [job, loadBatches]);
+  return () => {
+    socket.close();
+    socketRef.current = null;
+  };
+}, [job, loadBatches]);
 
   useEffect(() => {
     if (page === 0) {
@@ -606,388 +609,14 @@ export default function App() {
     }
   }, [page]);
 
-  const handleProcess = async (formData: FormData) => {
-    setBusy(true);
-    try {
-      const response = await uploadFiles(formData);
-      setLiveEvaluations([]);
-      setEvaluationMessage(null);
-      await loadBatches(response.batch_id);
-      await refreshConfig();
-      return response;
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const evaluateBatch = useCallback(
-    async ({ resume = false, force = false, batchId }: { resume?: boolean; force?: boolean; batchId?: number } = {}) => {
-      const targetBatchId = batchId ?? selectedBatchIdRef.current;
-      if (!targetBatchId) {
-        setProgress({ status: 'error', processed: 0, total: 0, message: 'Select a batch before running an evaluation.' });
-        return;
-      }
-
-      setBusy(true);
-      setLiveEvaluations([]);
-      try {
-        const response = await triggerEvaluation({
-          batch_id: targetBatchId,
-          limit: 5000,
-          offset: 0,
-          resume,
-          force
-        });
-        setJob(response);
-        setPage(0);
-        setEvaluations([]);
-        setTotal(response.total);
-        setLoading(false);
-        setCancelling(false);
-        setProgress({ status: 'running', processed: 0, total: response.total, message: 'Evaluation started' });
-        setEvaluationMessage('Evaluation running…');
-        await loadBatches(response.batch_id);
-      } catch (err) {
-        if (isAxiosError(err) && err.response?.status === 409) {
-          setEvaluationMessage('An evaluation is already running for this CSV. Wait for it to finish or cancel it first.');
-          setProgress((prev) => ({
-            status: 'error',
-            processed: prev.processed,
-            total: prev.total,
-            message: 'Another evaluation is already running. Wait for it to finish or cancel it first.'
-          }));
-          syncEvaluationStatus().catch((statusErr) => console.error('Failed to refresh evaluation status', statusErr));
-        } else {
-          console.error('Failed to start evaluation', err);
-          setEvaluationMessage('Failed to start evaluation. Check logs and try again.');
-          setProgress((prev) => ({
-            status: 'error',
-            processed: prev.processed,
-            total: prev.total,
-            message: 'Failed to start evaluation'
-          }));
-        }
-      } finally {
-        setBusy(false);
-      }
-    },
-    [loadBatches]
-  );
-
-  const handleEvaluate = useCallback((resume?: boolean) => evaluateBatch({ resume: Boolean(resume) }), [evaluateBatch]);
-
-  const handleResume = useCallback(() => evaluateBatch({ resume: true }), [evaluateBatch]);
-
-  const handleCancel = async () => {
-    if (!job) {
-      return;
-    }
-    try {
-      await cancelEvaluation(job.job_id);
-      setProgress((prev) => ({
-        status: 'cancelling',
-        processed: prev.processed,
-        total: prev.total,
-        message: 'Cancellation requested…'
-      }));
-      setCancelling(true);
-    } catch (err) {
-      console.error('Failed to cancel evaluation', err);
-      setCancelling(false);
-      setProgress((prev) => ({
-        status: 'error',
-        processed: prev.processed,
-        total: prev.total,
-        message: 'Failed to cancel evaluation'
-      }));
-    }
-  };
-
-  const handlePageChange = (nextPage: number) => {
-    setPage((current) => {
-      const normalized = Math.max(0, nextPage);
-      return current === normalized ? current : normalized;
-    });
-  };
-
-  const handleQueryChange = useCallback((next: FiltersState) => {
-    const normalized: FiltersState = {
-      q: next.q?.trim() ? next.q.trim() : undefined,
-      minScore: typeof next.minScore === 'number' ? next.minScore : undefined,
-      minViceScore: typeof next.minViceScore === 'number' ? next.minViceScore : undefined,
-      tld: next.tld?.trim() ? next.tld.trim() : undefined,
-      recommendation: next.recommendation?.trim() ? next.recommendation.trim() : undefined,
-      sort: normalizeSort(next.sort)
-    };
-
-    setFilters((current) => {
-      if (
-        current.q === normalized.q &&
-        current.minScore === normalized.minScore &&
-        current.minViceScore === normalized.minViceScore &&
-        current.tld === normalized.tld &&
-        current.recommendation === normalized.recommendation &&
-        normalizeSort(current.sort) === normalizeSort(normalized.sort)
-      ) {
-        return current;
-      }
-      return normalized;
-    });
-
-    setPage(0);
-  }, []);
-
-  const handleExport = async (format: 'csv' | 'json') => {
-    try {
-      const batchId = selectedBatchIdRef.current ?? undefined;
-      const blob = await exportResults(format, { batchId });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      const suffix = batchId ? `-batch-${batchId}` : '';
-      link.download = format === 'csv' ? `domain-risk-results${suffix}.csv` : `domain-risk-results${suffix}.json`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Export failed', err);
-    }
-  };
-
-  const recentBatches = batches.slice(0, 6);
-
-  const initialsForName = (value?: string) => {
-    if (!value) return 'CSV';
-    const parts = value.split(/\s+/).filter(Boolean).slice(0, 2);
-    if (parts.length === 0) return 'CSV';
-    return parts.map((part) => part.charAt(0).toUpperCase()).join('');
-  };
-
   return (
     <>
-      <main className="mx-auto w-full max-w-[1400px] px-4 lg:px-6 py-10 space-y-8">
-        <header className="space-y-1">
-          <h1 className="text-2xl font-semibold">Domain Risk Evaluation</h1>
-          <p className="text-sm text-slate-400">
-            Upload your domain CSVs once, reuse evaluations anytime, and keep trademark coverage up to date.
-          </p>
-        </header>
-
-        <UploadPane onProcess={handleProcess} onEvaluate={handleEvaluate} busy={busy || isEvaluating} />
-
-        {progress.status !== 'idle' && (
-          <section className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg text-sm">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <span className="text-slate-200 font-medium">
-                {progress.status === 'running'
-                  ? `Streaming results: ${progress.processed.toLocaleString()} / ${progress.total.toLocaleString()} processed`
-                  : progress.status === 'cancelling'
-                    ? progress.message || 'Cancellation requested…'
-                    : progress.message || ''}
-              </span>
-              <div className="flex items-center gap-3">
-                <span className="text-xs uppercase tracking-wide text-slate-500">
-                  {progress.status === 'running'
-                    ? 'Live'
-                    : progress.status === 'cancelling'
-                      ? 'Cancelling'
-                      : progress.status}
-                </span>
-                {(progress.status === 'running' || progress.status === 'cancelling') && (
-                  <button
-                    type="button"
-                    onClick={handleCancel}
-                    disabled={cancelling}
-                    className="text-xs font-medium text-red-400 hover:text-red-300 disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    {cancelling ? 'Cancelling…' : 'Stop evaluation'}
-                  </button>
-                )}
-                {progress.status !== 'running' && total > 0 && (
-                  <button
-                    type="button"
-                    onClick={handleResume}
-                    disabled={busy}
-                    className="text-xs font-medium text-brand-400 hover:text-brand-300 disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    Resume evaluation
-                  </button>
-                )}
-              </div>
-            </div>
-            {progress.status !== 'running' && progress.message && (
-              <p className="text-xs text-slate-400 mt-2">{progress.message}</p>
-            )}
-            {liveNotice && page > 0 && (
-              <button
-                type="button"
-                onClick={() => {
-                  setPage(0);
-                  setLiveNotice(false);
-                  const reload = loadResultsRef.current;
-                  if (reload) {
-                    reload().catch((err) => console.error(err));
-                  }
-                }}
-                className="mt-3 text-xs font-medium text-brand-500 hover:text-brand-600"
-              >
-                Jump to newest results
-              </button>
-            )}
-          </section>
-        )}
-
-        <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
-          <header className="flex items-center justify-between gap-3">
+      <main className="min-h-screen bg-slate-950 text-slate-100">
+        <div className="mx-auto max-w-6xl px-4 py-10 space-y-8">
+          <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h2 className="text-lg font-semibold text-slate-100">Live results (WebSocket)</h2>
-              <p className="text-sm text-slate-400">Latest AI decisions stream in while the batch runs.</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setLiveEvaluations([])}
-              className="px-3 py-1.5 text-xs rounded-lg border border-slate-700 text-slate-200 hover:bg-slate-800"
-            >
-              Clear
-            </button>
-          </header>
-
-          {liveEvaluations.length === 0 ? (
-            <p className="text-sm text-slate-400">No live events yet — start or resume an evaluation to watch updates here.</p>
-          ) : (
-            <ul className="max-h-72 overflow-y-auto pr-1 space-y-3 text-sm">
-              {liveEvaluations.map((item) => (
-                <li
-                  key={item.id}
-                  className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 flex flex-col gap-2"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-semibold text-slate-100">{item.domain}</span>
-                    <span className="inline-flex items-center justify-center px-2 py-1 text-xs font-semibold rounded-full capitalize border border-slate-700 text-slate-200">
-                      {item.overall_recommendation}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-300 whitespace-pre-line line-clamp-3">
-                    {item.explanation || '—'}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        {selectedBatch ? (
-          <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-5">
-            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-100">Selected CSV: {selectedBatch.name}</h2>
-                <p className="text-xs text-slate-400">
-                  Owner: {selectedBatch.owner} • Uploaded {new Date(selectedBatch.created_at).toLocaleString()}
-                </p>
-                {selectedBatch.last_evaluated_at && (
-                  <p className="text-xs text-slate-500">
-                    Last evaluated {new Date(selectedBatch.last_evaluated_at).toLocaleString()}
-                  </p>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={handleBatchRefresh}
-                  disabled={batchLoading}
-                  className={clsx(
-                    'px-3 py-2 rounded-lg border border-slate-700 text-slate-200 hover:bg-slate-800',
-                    batchLoading && 'opacity-60 cursor-not-allowed'
-                  )}
-                >
-                  Refresh stats
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setExplorerOpen(true)}
-                  className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100"
-                >
-                  View all CSVs
-                </button>
-              </div>
-            </div>
-
-            <dl className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 text-sm">
-              <div>
-                <dt className="text-xs text-slate-500 uppercase tracking-wide">Rows</dt>
-                <dd className="mt-1 text-base font-semibold text-slate-100">{selectedBatch.row_count.toLocaleString()}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-slate-500 uppercase tracking-wide">Unique Domains</dt>
-                <dd className="mt-1 text-base font-semibold text-slate-100">{selectedBatch.unique_domains.toLocaleString()}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-slate-500 uppercase tracking-wide">Duplicates</dt>
-                <dd className="mt-1 text-base font-semibold text-slate-100">{selectedBatch.duplicate_rows.toLocaleString()}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-slate-500 uppercase tracking-wide">Evaluated</dt>
-                <dd className="mt-1 text-base font-semibold text-slate-100">{selectedBatch.processed_domains.toLocaleString()}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-slate-500 uppercase tracking-wide">Remaining</dt>
-                <dd className="mt-1 text-base font-semibold text-slate-100">
-                  {Math.max(selectedBatch.unique_domains - selectedBatch.processed_domains, 0).toLocaleString()}
-                </dd>
-              </div>
-            </dl>
-
-            <div className="flex flex-wrap gap-3 text-sm">
-              <button
-                type="button"
-                onClick={() => evaluateBatch({ batchId: selectedBatch.id, resume: true })}
-                disabled={busy || isEvaluating}
-                className="px-4 py-2 rounded-lg bg-brand-500 hover:bg-brand-600 text-white font-medium disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                Evaluate batch
-              </button>
-              <button
-                type="button"
-                onClick={() => evaluateBatch({ batchId: selectedBatch.id, resume: true })}
-                disabled={busy || isEvaluating || selectedBatch.processed_domains >= selectedBatch.unique_domains}
-                className="px-4 py-2 rounded-lg border border-slate-700 text-slate-200 hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                Resume remaining
-              </button>
-              <button
-                type="button"
-                onClick={() => evaluateBatch({ batchId: selectedBatch.id, force: true })}
-                disabled={busy || isEvaluating}
-                className="px-4 py-2 rounded-lg border border-slate-700 text-slate-200 hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                Force re-run
-              </button>
-            </div>
-          </section>
-        ) : (
-          <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg">
-            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-100">No CSV selected</h2>
-                <p className="text-sm text-slate-400">Upload a new CSV or open the explorer to pick an existing dataset.</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setExplorerOpen(true)}
-                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100"
-              >
-                Open CSV Explorer
-              </button>
-            </div>
-          </section>
-        )}
-
-        <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-lg space-y-4">
-          <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-100">Recent CSV batches</h2>
-              <p className="text-sm text-slate-400">Jump back into a dataset or browse everything from the explorer.</p>
+              <h1 className="text-2xl font-semibold">Domain Risk Evaluation</h1>
+              <p className="text-sm text-slate-400">Score trademark and vice risk in bulk with AI explanations.</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <button
@@ -995,81 +624,249 @@ export default function App() {
                 onClick={handleBatchRefresh}
                 disabled={batchLoading}
                 className={clsx(
-                  'px-3 py-2 rounded-lg border border-slate-700 text-slate-200 hover:bg-slate-800',
-                  batchLoading && 'opacity-60 cursor-not-allowed'
+                  'rounded-full border border-slate-700 px-4 py-1.5 text-sm text-slate-200 transition-colors',
+                  batchLoading ? 'cursor-not-allowed opacity-60' : 'hover:bg-slate-800'
                 )}
               >
-                Refresh
+                Refresh data
               </button>
               <button
                 type="button"
                 onClick={() => setExplorerOpen(true)}
-                className="px-3 py-2 rounded-lg bg-brand-500 hover:bg-brand-600 text-white font-medium"
+                className="rounded-full bg-slate-100 px-4 py-1.5 text-sm font-medium text-slate-900 hover:bg-white"
               >
-                Open Explorer
+                Browse CSVs
               </button>
             </div>
           </header>
 
-          {recentBatches.length === 0 ? (
-            <p className="text-sm text-slate-400">No CSV batches yet. Upload a CSV to get started.</p>
-          ) : (
-            <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">
-              {recentBatches.map((batch) => {
-                const isSelected = batch.id === selectedBatch?.id;
-                const remaining = Math.max(batch.unique_domains - batch.processed_domains, 0);
-                return (
+          <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
+            <aside className="space-y-6">
+              <UploadPane onProcess={handleProcess} onEvaluate={handleEvaluate} busy={busy || isEvaluating} />
+
+              <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+                <h3 className="text-xs uppercase tracking-wide text-slate-500">This page</h3>
+                <div className="mt-3 grid grid-cols-2 gap-3 text-sm text-slate-100">
+                  {summaryItems.map((item) => (
+                    <div key={item.label} className={clsx('rounded-xl px-3 py-2', item.accent)}>
+                      <p className="text-xs uppercase tracking-wide text-slate-200/70">{item.label}</p>
+                      <p className="text-lg font-semibold">{item.value.toLocaleString()}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              {progress.status !== 'idle' && (
+                <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-slate-500">Evaluation</p>
+                      <p className="text-sm font-medium text-slate-100">
+                        {progress.processed.toLocaleString()} / {progress.total.toLocaleString()} processed
+                      </p>
+                    </div>
+                    <span className="text-xs text-slate-400">{progress.status}</span>
+                  </div>
+                  <div className="h-2 w-full rounded-full bg-slate-800">
+                    <div
+                      className="h-full rounded-full bg-slate-100 transition-all"
+                      style={{ width: `${progressPercent}%` }}
+                    />
+                  </div>
+                  {progressNote && <p className="text-xs text-slate-400">{progressNote}</p>}
+                  {liveNotice && page > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPage(0);
+                        setLiveNotice(false);
+                        const reload = loadResultsRef.current;
+                        if (reload) {
+                          reload().catch((err) => console.error(err));
+                        }
+                      }}
+                      className="text-xs font-medium text-slate-200 hover:text-white"
+                    >
+                      Jump to newest results
+                    </button>
+                  )}
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    {(progress.status === 'running' || progress.status === 'cancelling') && (
+                      <button
+                        type="button"
+                        onClick={handleCancel}
+                        disabled={cancelling}
+                        className={clsx(
+                          'rounded-full border border-red-500/60 px-3 py-1 text-red-200',
+                          cancelling ? 'cursor-not-allowed opacity-60' : 'hover:bg-red-500/10'
+                        )}
+                      >
+                        {cancelling ? 'Cancelling…' : 'Stop evaluation'}
+                      </button>
+                    )}
+                    {progress.status !== 'running' && progress.status !== 'cancelling' && progress.total > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleResume}
+                        disabled={busy}
+                        className={clsx(
+                          'rounded-full border border-slate-700 px-3 py-1 text-slate-200',
+                          busy ? 'cursor-not-allowed opacity-60' : 'hover:bg-slate-800'
+                        )}
+                      >
+                        Resume evaluation
+                      </button>
+                    )}
+                  </div>
+                </section>
+              )}
+
+              <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs uppercase tracking-wide text-slate-500">Selected dataset</h3>
                   <button
-                    key={batch.id}
                     type="button"
-                    onClick={() => handleSelectBatch(batch)}
+                    onClick={() => setExplorerOpen(true)}
+                    className="text-xs text-slate-300 hover:text-white"
+                  >
+                    Manage
+                  </button>
+                </div>
+                {selectedBatch ? (
+                  <div className="space-y-2 text-sm text-slate-300">
+                    <p className="font-medium text-slate-100 line-clamp-2">{selectedBatch.name}</p>
+                    <p className="text-xs text-slate-500">
+                      Owner: {selectedBatch.owner} • {new Date(selectedBatch.created_at).toLocaleDateString()}
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      {selectedBatch.processed_domains.toLocaleString()} processed • {remainingForSelected.toLocaleString()} remaining
+                    </p>
+                    <div className="flex flex-wrap gap-2 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => handleEvaluate(true)}
+                        className="rounded-full border border-slate-700 px-3 py-1 text-slate-200 hover:bg-slate-800"
+                      >
+                        Resume
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => evaluateBatch({ force: true, batchId: selectedBatch.id })}
+                        className="rounded-full border border-slate-700 px-3 py-1 text-slate-200 hover:bg-slate-800"
+                      >
+                        Force re-run
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-400">No dataset selected. Upload a CSV or open the explorer.</p>
+                )}
+              </section>
+
+              <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs uppercase tracking-wide text-slate-500">Live stream</h3>
+                  {liveSlice.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setLiveEvaluations([])}
+                      className="text-xs text-slate-300 hover:text-white"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                {liveSlice.length === 0 ? (
+                  <p className="text-xs text-slate-400">Start or resume a batch to watch AI decisions arrive in real time.</p>
+                ) : (
+                  <ul className="space-y-2 text-xs">
+                    {liveSlice.map((item) => (
+                      <li key={item.id} className="rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate text-slate-100">{item.domain}</span>
+                          <span className="rounded-full border border-slate-700 px-2 py-0.5 text-[11px] uppercase text-slate-300">
+                            {item.overall_recommendation}
+                          </span>
+                        </div>
+                        <p className="mt-1 line-clamp-2 text-[11px] text-slate-400">{item.explanation || '—'}</p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+
+              <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs uppercase tracking-wide text-slate-500">Recent batches</h3>
+                  <button
+                    type="button"
+                    onClick={handleBatchRefresh}
+                    disabled={batchLoading}
                     className={clsx(
-                      'rounded-2xl border border-slate-800 bg-slate-900/70 p-4 text-left transition-transform hover:-translate-y-1 hover:border-brand-500',
-                      isSelected && 'ring-2 ring-brand-500 border-brand-500'
+                      'text-xs text-slate-300 hover:text-white',
+                      batchLoading && 'cursor-not-allowed opacity-60'
                     )}
                   >
-                    <div className="flex items-center justify-between">
-                      <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-brand-500 to-brand-400/80 flex items-center justify-center text-white font-semibold">
-                        {initialsForName(batch.name)}
-                      </div>
-                      <span className="text-xs text-slate-500">{new Date(batch.created_at).toLocaleDateString()}</span>
-                    </div>
-                    <h3 className="mt-3 text-sm font-semibold text-slate-100 line-clamp-2">{batch.name}</h3>
-                    <p className="text-xs text-slate-400 mt-1">Owner: {batch.owner}</p>
-                    <div className="mt-3 text-xs text-slate-400 space-y-1">
-                      <p>Total: {batch.row_count.toLocaleString()}</p>
-                      <p>Evaluated: {batch.processed_domains.toLocaleString()}</p>
-                      <p>Remaining: {remaining.toLocaleString()}</p>
-                    </div>
+                    Refresh
                   </button>
-                );
-              })}
-            </div>
-          )}
-        </section>
+                </div>
+                {recentBatches.length === 0 ? (
+                  <p className="text-xs text-slate-400">No uploads yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {recentBatches.map((batch) => {
+                      const isSelected = batch.id === selectedBatch?.id;
+                      const remaining = Math.max(batch.unique_domains - batch.processed_domains, 0);
+                      return (
+                        <button
+                          key={batch.id}
+                          type="button"
+                          onClick={() => handleSelectBatch(batch)}
+                          className={clsx(
+                            'w-full rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 text-left text-xs transition-colors hover:border-slate-600 hover:bg-slate-900',
+                            isSelected && 'border-slate-200'
+                          )}
+                        >
+                          <div className="flex items-center justify-between text-slate-200">
+                            <span className="truncate">{batch.name}</span>
+                            <span className="text-slate-500">{new Date(batch.created_at).toLocaleDateString()}</span>
+                          </div>
+                          <div className="mt-1 flex justify-between text-[11px] text-slate-400">
+                            <span>
+                              {batch.processed_domains.toLocaleString()} / {batch.unique_domains.toLocaleString()} done
+                            </span>
+                            <span>{remaining.toLocaleString()} left</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+            </aside>
 
-        <ResultsTable
-          data={evaluations}
-          total={total}
-          loading={
-            loading || busy || (isEvaluating && evaluations.length === 0)
-          }
-          page={page}
-          pageSize={PAGE_SIZE}
-          onPageChange={handlePageChange}
-          onQueryChange={handleQueryChange}
-          onExport={handleExport}
-          tldOptions={tldOptions}
-          filters={{
-            q: filterQuery,
-            minScore: filterMinScore,
-            minViceScore: filterMinViceScore,
-            tld: filterTld,
-            recommendation: filterRecommendation,
-            sort: filterSort
-          }}
-          batchName={selectedBatch?.name}
-        />
+            <ResultsTable
+              data={evaluations}
+              total={total}
+              loading={loading || busy || (isEvaluating && evaluations.length === 0)}
+              page={page}
+              pageSize={PAGE_SIZE}
+              onPageChange={handlePageChange}
+              onQueryChange={handleQueryChange}
+              onExport={handleExport}
+              tldOptions={tldOptions}
+              filters={{
+                q: filterQuery,
+                minScore: filterMinScore,
+                minViceScore: filterMinViceScore,
+                tld: filterTld,
+                recommendation: filterRecommendation,
+                sort: filterSort,
+              }}
+              batchName={selectedBatch?.name}
+            />
+          </div>
+        </div>
       </main>
 
       <CsvExplorer
