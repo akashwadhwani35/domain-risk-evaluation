@@ -185,7 +185,7 @@ export default function ResultsTable({
       </div>
 
       <div className="overflow-x-auto border-t border-slate-800">
-        <table className="min-w-full divide-y divide-slate-800 text-sm">
+        <table className="w-full min-w-full divide-y divide-slate-800 text-sm">
           <thead className="bg-slate-900/40 text-xs uppercase tracking-wide text-slate-400">
             <tr>
               <th className="px-4 py-3 text-left">Domain</th>
@@ -193,7 +193,7 @@ export default function ResultsTable({
               <th className="px-4 py-3 text-left">Matched mark</th>
               <th className="px-4 py-3 text-left">Vice</th>
               <th className="px-4 py-3 text-left">Recommendation</th>
-              <th className="px-4 py-3 text-left w-[360px]">Explanation</th>
+              <th className="px-4 py-3 text-left md:w-[520px] xl:w-[640px]">Explanation</th>
               <th className="px-4 py-3 text-right">Confidence</th>
               <th className="px-4 py-3 text-left">Commercial</th>
               <th className="px-4 py-3 text-right">Evaluated</th>
@@ -234,7 +234,7 @@ export default function ResultsTable({
                   <td className="px-4 py-3 align-top">
                     <ScoreBadge variant="overall" label={row.overall_recommendation} />
                   </td>
-                  <td className="px-4 py-3 align-top whitespace-pre-line text-slate-200 w-[360px] leading-relaxed">
+                  <td className="px-4 py-4 align-top whitespace-pre-line text-slate-200 md:w-[520px] xl:w-[640px] leading-relaxed">
                     {row.explanation || '—'}
                   </td>
                   <td className="px-4 py-3 align-top text-right text-slate-300">
