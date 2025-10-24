@@ -56,7 +56,7 @@ export default function CsvExplorer({ open, batches, selectedId, onSelect, onClo
                       <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-brand-500 to-brand-400/80 flex items-center justify-center text-white font-semibold text-lg">
                         {initialsFor(batch.name)}
                       </div>
-                      <h3 className="text-sm font-semibold text-slate-100 line-clamp-2">{batch.name}</h3>
+                      <h3 className="text-sm font-semibold text-slate-100 break-words">{batch.name}</h3>
                       <p className="text-xs text-slate-400">Owner: {batch.owner}</p>
                     </div>
                     <div className="text-xs text-slate-400 space-y-1">

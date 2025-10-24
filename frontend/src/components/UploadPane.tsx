@@ -4,7 +4,7 @@ import type { UploadResponse } from '../types';
 
 interface UploadPaneProps {
   onProcess: (formData: FormData) => Promise<UploadResponse>;
-  onEvaluate: (resume?: boolean) => Promise<void>;
+  onEvaluate: (options?: { resume?: boolean; force?: boolean; batchId?: number }) => Promise<void>;
   busy: boolean;
 }
 
@@ -43,7 +43,7 @@ export default function UploadPane({ onProcess, onEvaluate, busy }: UploadPanePr
       form.append('owner_name', ownerName.trim());
       const response = await onProcess(form);
       setLastResponse(response);
-      await onEvaluate();
+      await onEvaluate({ batchId: response.batch_id });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Upload failed';
       setError(message);

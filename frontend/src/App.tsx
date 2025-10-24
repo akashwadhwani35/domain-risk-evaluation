@@ -38,6 +38,12 @@ type ProgressState = {
   message?: string;
 };
 
+type EvaluateOptions = {
+  batchId?: number;
+  resume?: boolean;
+  force?: boolean;
+};
+
 const normalizeSort = (sort?: string) => (sort && sort.trim() !== '' ? sort : DEFAULT_SORT);
 
 const matchesFilters = (row: EvaluationDTO, filters: FiltersState) => {
@@ -324,7 +330,7 @@ export default function App() {
   }, [fetchBatch]);
 
   const evaluateBatch = useCallback(
-    async ({ batchId, resume, force }: { batchId?: number; resume?: boolean; force?: boolean } = {}) => {
+    async ({ batchId, resume, force }: EvaluateOptions = {}) => {
       const targetId = batchId ?? selectedBatchIdRef.current ?? selectedBatch?.id ?? null;
       if (!targetId) {
         setEvaluationMessage('Select a dataset before starting an evaluation.');
@@ -346,6 +352,7 @@ export default function App() {
           message: 'Evaluation queued…'
         });
         setEvaluationMessage('Evaluation started…');
+        selectedBatchIdRef.current = targetId;
         await loadBatches(targetId);
       } catch (err) {
         const message =
@@ -364,8 +371,8 @@ export default function App() {
   );
 
   const handleEvaluate = useCallback(
-    async (resume = false) => {
-      await evaluateBatch({ resume });
+    async (options?: EvaluateOptions) => {
+      await evaluateBatch(options);
     },
     [evaluateBatch]
   );
@@ -377,6 +384,7 @@ export default function App() {
         const response = await uploadFiles(form);
         setEvaluationMessage(`Uploaded ${response.row_count.toLocaleString()} rows.`);
         await loadBatches(response.batch_id);
+        selectedBatchIdRef.current = response.batch_id;
         return response;
       } catch (err) {
         const message =
@@ -869,7 +877,7 @@ export default function App() {
                 </div>
                 {selectedBatch ? (
                   <div className="space-y-2 text-sm text-slate-300">
-                    <p className="font-medium text-slate-100 line-clamp-2">{selectedBatch.name}</p>
+                    <p className="font-medium text-slate-100 break-words">{selectedBatch.name}</p>
                     <p className="text-xs text-slate-500">
                       Owner: {selectedBatch.owner} • {new Date(selectedBatch.created_at).toLocaleDateString()}
                     </p>
@@ -880,7 +888,7 @@ export default function App() {
                       <button
                         type="button"
                         onClick={() => {
-                          void handleEvaluate(true);
+                          void handleEvaluate({ resume: true });
                         }}
                         className="rounded-full border border-slate-700 px-3 py-1 text-slate-200 hover:bg-slate-800"
                       >
@@ -889,7 +897,7 @@ export default function App() {
                       <button
                         type="button"
                         onClick={() => {
-                          void evaluateBatch({ force: true, batchId: selectedBatch.id });
+                          void handleEvaluate({ force: true, batchId: selectedBatch.id });
                         }}
                         className="rounded-full border border-slate-700 px-3 py-1 text-slate-200 hover:bg-slate-800"
                       >
@@ -922,12 +930,12 @@ export default function App() {
                     {liveSlice.map((item) => (
                       <li key={item.id} className="rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-2">
                         <div className="flex items-center justify-between gap-2">
-                          <span className="truncate text-slate-100">{item.domain}</span>
+                          <span className="text-slate-100 break-all">{item.domain}</span>
                           <span className="rounded-full border border-slate-700 px-2 py-0.5 text-[11px] uppercase text-slate-300">
                             {item.overall_recommendation}
                           </span>
                         </div>
-                        <p className="mt-1 line-clamp-2 text-[11px] text-slate-400">{item.explanation || '—'}</p>
+                        <p className="mt-1 text-[11px] text-slate-400 break-words">{item.explanation || '—'}</p>
                       </li>
                     ))}
                   </ul>
@@ -967,7 +975,7 @@ export default function App() {
                           )}
                         >
                           <div className="flex items-center justify-between text-slate-200">
-                            <span className="truncate">{batch.name}</span>
+                            <span className="break-words">{batch.name}</span>
                             <span className="text-slate-500">{new Date(batch.created_at).toLocaleDateString()}</span>
                           </div>
                           <div className="mt-1 flex justify-between text-[11px] text-slate-400">
