@@ -185,45 +185,45 @@ export default function ResultsTable({
       </div>
 
       <div className="overflow-x-auto border-t border-slate-800">
-        <table className="w-full min-w-full divide-y divide-slate-800 text-sm">
+        <table className="w-full min-w-full table-fixed divide-y divide-slate-800 text-sm">
           <thead className="bg-slate-900/40 text-xs uppercase tracking-wide text-slate-400">
             <tr>
-              <th className="px-4 py-3 text-left">Domain</th>
-              <th className="px-4 py-3 text-left">Trademark</th>
-              <th className="px-4 py-3 text-left">Matched mark</th>
-              <th className="px-4 py-3 text-left">Vice</th>
-              <th className="px-4 py-3 text-left">Recommendation</th>
-              <th className="px-4 py-3 text-left md:w-[520px] xl:w-[640px]">Explanation</th>
-              <th className="px-4 py-3 text-right">Confidence</th>
-              <th className="px-4 py-3 text-left">Commercial</th>
-              <th className="px-4 py-3 text-right">Evaluated</th>
+              <th className="w-[240px] px-6 py-4 text-left">Domain</th>
+              <th className="w-[180px] px-6 py-4 text-left">Trademark</th>
+              <th className="w-[220px] px-6 py-4 text-left">Matched mark</th>
+              <th className="w-[220px] px-6 py-4 text-left">Vice</th>
+              <th className="w-[180px] px-6 py-4 text-left">Recommendation</th>
+              <th className="px-6 py-4 text-left md:w-[560px] xl:w-[720px]">Explanation</th>
+              <th className="w-[120px] px-6 py-4 text-right">Confidence</th>
+              <th className="w-[220px] px-6 py-4 text-left">Commercial</th>
+              <th className="w-[160px] px-6 py-4 text-right">Evaluated</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
             {loading ? (
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-slate-400">
+                <td colSpan={9} className="px-6 py-12 text-center text-slate-400">
                   Processing…
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-slate-400">
+                <td colSpan={9} className="px-6 py-12 text-center text-slate-400">
                   No results yet. Upload a CSV and run an evaluation.
                 </td>
               </tr>
             ) : (
               rows.map((row) => (
-                <tr key={row.id} className="bg-slate-900/60 hover:bg-slate-900/80">
-                  <td className="px-4 py-3 align-top font-medium text-slate-100 break-all">{row.domain}</td>
-                  <td className="px-4 py-3 align-top">
+                <tr key={row.id} className="bg-slate-900/70 hover:bg-slate-900/80">
+                  <td className="px-6 py-5 align-top font-medium text-slate-100 whitespace-nowrap overflow-hidden text-ellipsis">{row.domain}</td>
+                  <td className="px-6 py-5 align-top">
                     <div className="flex items-center gap-2">
                       <ScoreBadge variant="trademark" score={row.trademark_score} label={row.trademark_score} />
                       <span className="text-xs text-slate-400">{row.trademark_type || '—'}</span>
                     </div>
                   </td>
-                  <td className="px-4 py-3 align-top text-slate-300 break-words">{row.matched_trademark || '—'}</td>
-                  <td className="px-4 py-3 align-top">
+                  <td className="px-6 py-5 align-top text-slate-300 break-words">{row.matched_trademark || '—'}</td>
+                  <td className="px-6 py-5 align-top">
                     <div className="flex items-center gap-2">
                       <ScoreBadge variant="vice" score={row.vice_score} label={row.vice_score} />
                       <span className="text-xs text-slate-400">
@@ -231,23 +231,23 @@ export default function ResultsTable({
                       </span>
                     </div>
                   </td>
-                  <td className="px-4 py-3 align-top">
+                  <td className="px-6 py-5 align-top">
                     <ScoreBadge variant="overall" label={row.overall_recommendation} />
                   </td>
-                  <td className="px-4 py-4 align-top whitespace-pre-line text-slate-200 md:w-[520px] xl:w-[640px] leading-relaxed">
+                  <td className="px-6 py-5 align-top whitespace-pre-line text-slate-200 md:w-[560px] xl:w-[720px] leading-relaxed">
                     {row.explanation || '—'}
                   </td>
-                  <td className="px-4 py-3 align-top text-right text-slate-300">
+                  <td className="px-6 py-5 align-top text-right text-slate-300">
                     {row.confidence.toFixed(2)}
                   </td>
-                  <td className="px-4 py-3 align-top text-xs text-slate-400">
+                  <td className="px-6 py-5 align-top text-xs text-slate-400">
                     {row.commercial_override
                       ? `Override — ${row.commercial_source || 'High sale'} (${Math.round(row.commercial_similarity * 100)}% match)`
                       : row.commercial_source
                         ? `Signal — ${row.commercial_source} (${Math.round(row.commercial_similarity * 100)}% match)`
                         : '—'}
                   </td>
-                  <td className="px-4 py-3 text-right text-xs text-slate-400">
+                  <td className="px-6 py-5 text-right text-xs text-slate-400">
                     {dayjs(row.created_at).format('YYYY-MM-DD HH:mm')}
                   </td>
                 </tr>
