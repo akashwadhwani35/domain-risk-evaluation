@@ -17,7 +17,7 @@ import {
   fetchBatch,
   fetchEvaluationStatus
 } from './lib/api';
-import type { BatchDTO, EvaluationDTO, EvaluationEvent, StartEvaluationResponse } from './types';
+import type { BatchDTO, EvaluationDTO, EvaluationEvent, StartEvaluationResponse, EvaluateRequest, UploadResponse } from './types';
 
 const PAGE_SIZE = 50;
 const DEFAULT_SORT = 'created_desc';
@@ -323,6 +323,140 @@ export default function App() {
       .catch((err) => console.error(err));
   }, [fetchBatch]);
 
+  const evaluateBatch = useCallback(
+    async ({ batchId, resume, force }: { batchId?: number; resume?: boolean; force?: boolean } = {}) => {
+      const targetId = batchId ?? selectedBatchIdRef.current ?? selectedBatch?.id ?? null;
+      if (!targetId) {
+        setEvaluationMessage('Select a dataset before starting an evaluation.');
+        return;
+      }
+
+      setBusy(true);
+      try {
+        const payload: EvaluateRequest = { batch_id: targetId };
+        if (resume) payload.resume = true;
+        if (force) payload.force = true;
+
+        const response = await triggerEvaluation(payload);
+        setJob(response);
+        setProgress({
+          status: 'running',
+          processed: 0,
+          total: response.total ?? 0,
+          message: 'Evaluation queued…'
+        });
+        setEvaluationMessage('Evaluation started…');
+        await loadBatches(targetId);
+      } catch (err) {
+        const message =
+          isAxiosError(err) && err.response?.data
+            ? (err.response.data as { message?: string })?.message ?? 'Evaluation failed'
+            : err instanceof Error
+              ? err.message
+              : 'Evaluation failed';
+        setEvaluationMessage(message);
+        console.error('Failed to start evaluation', err);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [loadBatches, selectedBatch?.id]
+  );
+
+  const handleEvaluate = useCallback(
+    async (resume = false) => {
+      await evaluateBatch({ resume });
+    },
+    [evaluateBatch]
+  );
+
+  const handleProcess = useCallback(
+    async (form: FormData): Promise<UploadResponse> => {
+      setBusy(true);
+      try {
+        const response = await uploadFiles(form);
+        setEvaluationMessage(`Uploaded ${response.row_count.toLocaleString()} rows.`);
+        await loadBatches(response.batch_id);
+        return response;
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : 'Upload failed';
+        setEvaluationMessage(message);
+        throw err;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [loadBatches]
+  );
+
+  const handleCancel = useCallback(async () => {
+    if (!job) return;
+    setCancelling(true);
+    try {
+      await cancelEvaluation(job.job_id);
+      setEvaluationMessage('Cancellation requested…');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to cancel evaluation';
+      setEvaluationMessage(message);
+      setCancelling(false);
+    }
+  }, [job]);
+
+  const handleResume = useCallback(async () => {
+    await evaluateBatch({ resume: true });
+  }, [evaluateBatch]);
+
+  const handlePageChange = useCallback(
+    (nextPage: number) => {
+      setPage(nextPage);
+      const reload = loadResultsRef.current;
+      if (reload) {
+        reload().catch((err) => console.error(err));
+      }
+    },
+    []
+  );
+
+  const handleQueryChange = useCallback(
+    (query: {
+      q?: string;
+      minScore?: number;
+      minViceScore?: number;
+      tld?: string;
+      recommendation?: string;
+      sort?: string;
+    }) => {
+      setFilters((prev) => ({ ...prev, ...query }));
+      setPage(0);
+      const reload = loadResultsRef.current;
+      if (reload) {
+        reload().catch((err) => console.error(err));
+      }
+    },
+    []
+  );
+
+  const handleExport = useCallback(
+    async (format: 'csv' | 'json') => {
+      try {
+        const blob = await exportResults(format, { batchId: selectedBatch?.id ?? undefined });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = format === 'csv' ? 'domain-risk-results.csv' : 'domain-risk-results.json';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        console.error('Failed to export results', err);
+        setEvaluationMessage('Export failed.');
+      }
+    },
+    [selectedBatch?.id]
+  );
+
   useEffect(() => {
     filtersRef.current = filters;
   }, [filters]);
@@ -580,18 +714,17 @@ export default function App() {
           const refreshedBatchId = payload.batch_id ?? job.batch_id;
           if (refreshedBatchId) {
             loadBatches(refreshedBatchId).catch((err) => console.error(err));
-            setEvaluationMessage(payload.message ?? 'Evaluation failed.');
-        }
+          }
           if (payload.batch_id && selectedBatchIdRef.current === payload.batch_id) {
             touchSelectedBatch((current) => ({
               ...current,
               processed_domains: payload.processed ?? current.processed_domains,
               last_evaluated_at: new Date().toISOString()
             }));
-            setEvaluationMessage(payload.message ?? 'Evaluation failed.');
-        }
+          }
           setEvaluationMessage(payload.message ?? 'Evaluation failed.');
-      }
+          return;
+        }
     } catch (err) {
       console.error('Failed to parse evaluation event', err);
     }
@@ -707,7 +840,9 @@ export default function App() {
                     {progress.status !== 'running' && progress.status !== 'cancelling' && progress.total > 0 && (
                       <button
                         type="button"
-                        onClick={handleResume}
+                        onClick={() => {
+                          void handleResume();
+                        }}
                         disabled={busy}
                         className={clsx(
                           'rounded-full border border-slate-700 px-3 py-1 text-slate-200',
@@ -744,14 +879,18 @@ export default function App() {
                     <div className="flex flex-wrap gap-2 text-xs">
                       <button
                         type="button"
-                        onClick={() => handleEvaluate(true)}
+                        onClick={() => {
+                          void handleEvaluate(true);
+                        }}
                         className="rounded-full border border-slate-700 px-3 py-1 text-slate-200 hover:bg-slate-800"
                       >
                         Resume
                       </button>
                       <button
                         type="button"
-                        onClick={() => evaluateBatch({ force: true, batchId: selectedBatch.id })}
+                        onClick={() => {
+                          void evaluateBatch({ force: true, batchId: selectedBatch.id });
+                        }}
                         className="rounded-full border border-slate-700 px-3 py-1 text-slate-200 hover:bg-slate-800"
                       >
                         Force re-run
