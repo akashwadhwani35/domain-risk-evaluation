@@ -484,6 +484,10 @@ func (s *Server) handleEvaluate(c *gin.Context) {
 		return
 	}
 
+	if !req.Force && !req.Resume {
+		req.Resume = true
+	}
+
 	batch, err := s.db.GetCSVBatch(req.BatchID)
 	if err != nil {
 		s.renderError(c, http.StatusNotFound, fmt.Errorf("batch %d not found", req.BatchID))

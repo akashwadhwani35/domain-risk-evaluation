@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"domain-risk-eval/backend/internal/scoring"
+	"github.com/sirupsen/logrus"
 )
 
 // Explainer exposes AI-backed explanations for evaluation results.
@@ -150,6 +151,7 @@ func (c *Client) Explain(ctx context.Context, input ExplanationInput) (Decision,
 
 	var decision Decision
 	if err := json.Unmarshal([]byte(content), &decision); err != nil {
+		logrus.WithError(err).WithField("content", content).Warn("ai response parse failed")
 		return Decision{}, fmt.Errorf("parse ai response: %w", err)
 	}
 
@@ -205,6 +207,9 @@ func sanitizeModelJSON(raw string) string {
 					continue
 				}
 			}
+		} else if ch == '.' && (i == 0 || raw[i-1] == '{' || raw[i-1] == ',' || raw[i-1] == ' ') {
+			// stray dot not tied to a number
+			continue
 		}
 		buf.WriteByte(ch)
 	}
