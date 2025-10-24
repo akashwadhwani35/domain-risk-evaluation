@@ -113,9 +113,12 @@ export default function UploadPane({ onProcess, onEvaluate, busy }: UploadPanePr
       </div>
 
       {lastResponse && (
-        <div className="mt-5 rounded-xl border border-slate-800 bg-slate-950/40 p-4 text-xs text-slate-300">
-          <p className="font-semibold text-slate-200">{lastResponse.batch_name}</p>
-          <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-3">
+        <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-950/50 p-6 text-sm text-slate-100 shadow-sm">
+          <div className="flex flex-col gap-1">
+            <p className="text-sm font-semibold text-slate-200">{lastResponse.batch_name}</p>
+            <p className="text-xs uppercase tracking-wide text-slate-500">Upload summary</p>
+          </div>
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <Stat label="Rows" value={lastResponse.row_count} />
             <Stat label="Unique domains" value={lastResponse.unique_domains} />
             <Stat label="Already evaluated" value={lastResponse.processed_domains} />
@@ -133,9 +136,9 @@ export default function UploadPane({ onProcess, onEvaluate, busy }: UploadPanePr
 
 function Stat({ label, value }: { label: string; value: number }) {
   return (
-    <div className="flex items-center justify-between text-slate-400">
-      <span>{label}</span>
-      <span className="font-medium text-slate-100">{value.toLocaleString()}</span>
+    <div className="flex flex-col rounded-xl border border-slate-800/60 bg-slate-900/60 px-4 py-3">
+      <span className="text-xs uppercase tracking-wide text-slate-500">{label}</span>
+      <span className="text-base font-semibold text-slate-100 leading-tight">{value.toLocaleString()}</span>
     </div>
   );
 }

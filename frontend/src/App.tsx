@@ -781,17 +781,17 @@ export default function App() {
             </div>
           </header>
 
-          <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
-            <aside className="space-y-6 lg:max-h-[calc(100vh-160px)] lg:overflow-y-auto lg:pr-2">
+          <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
+            <aside className="space-y-6 lg:max-h-[calc(100vh-160px)] lg:overflow-y-auto lg:pr-3">
               <UploadPane onProcess={handleProcess} onEvaluate={handleEvaluate} busy={busy || isEvaluating} />
 
-              <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+              <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
                 <h3 className="text-xs uppercase tracking-wide text-slate-500">This page</h3>
-                <div className="mt-3 grid grid-cols-2 gap-3 text-sm text-slate-100">
+                <div className="mt-4 grid grid-cols-2 gap-4 text-sm text-slate-100">
                   {summaryItems.map((item) => (
-                    <div key={item.label} className={clsx('rounded-xl px-3 py-2', item.accent)}>
-                      <p className="text-xs uppercase tracking-wide text-slate-200/70">{item.label}</p>
-                      <p className="text-lg font-semibold">{item.value.toLocaleString()}</p>
+                    <div key={item.label} className={clsx('rounded-xl px-4 py-3', item.accent)}>
+                      <p className="text-xs uppercase tracking-wide text-slate-100/80">{item.label}</p>
+                      <p className="text-lg font-semibold leading-tight">{item.value.toLocaleString()}</p>
                     </div>
                   ))}
                 </div>
@@ -992,26 +992,28 @@ export default function App() {
               </section>
             </aside>
 
-            <ResultsTable
-              data={evaluations}
-              total={total}
-              loading={loading || busy || (isEvaluating && evaluations.length === 0)}
-              page={page}
-              pageSize={PAGE_SIZE}
-              onPageChange={handlePageChange}
-              onQueryChange={handleQueryChange}
-              onExport={handleExport}
-              tldOptions={tldOptions}
-              filters={{
-                q: filterQuery,
-                minScore: filterMinScore,
-                minViceScore: filterMinViceScore,
-                tld: filterTld,
-                recommendation: filterRecommendation,
-                sort: filterSort,
-              }}
-              batchName={selectedBatch?.name}
-            />
+            <div className="space-y-6 lg:max-h-[calc(100vh-160px)] lg:overflow-y-auto lg:pr-1">
+              <ResultsTable
+                data={evaluations}
+                total={total}
+                loading={loading || busy || (isEvaluating && evaluations.length === 0)}
+                page={page}
+                pageSize={PAGE_SIZE}
+                onPageChange={handlePageChange}
+                onQueryChange={handleQueryChange}
+                onExport={handleExport}
+                tldOptions={tldOptions}
+                filters={{
+                  q: filterQuery,
+                  minScore: filterMinScore,
+                  minViceScore: filterMinViceScore,
+                  tld: filterTld,
+                  recommendation: filterRecommendation,
+                  sort: filterSort,
+                }}
+                batchName={selectedBatch?.name}
+              />
+            </div>
           </div>
         </div>
       </main>
