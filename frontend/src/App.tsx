@@ -753,7 +753,7 @@ export default function App() {
   return (
     <>
       <main className="min-h-screen bg-slate-950 text-slate-100">
-        <div className="mx-auto w-full max-w-[1400px] px-4 py-10 space-y-8">
+        <div className="mx-auto w-full max-w-[1280px] px-4 py-10 space-y-8">
           <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h1 className="text-2xl font-semibold">Domain Risk Evaluation</h1>
