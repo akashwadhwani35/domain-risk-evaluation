@@ -782,7 +782,7 @@ export default function App() {
           </header>
 
           <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
-            <aside className="space-y-6">
+            <aside className="space-y-6 lg:max-h-[calc(100vh-160px)] lg:overflow-y-auto lg:pr-2">
               <UploadPane onProcess={handleProcess} onEvaluate={handleEvaluate} busy={busy || isEvaluating} />
 
               <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">

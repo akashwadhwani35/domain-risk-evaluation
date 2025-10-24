@@ -187,10 +187,15 @@ func normalizeJSONBlock(input string) string {
 	return trimmed
 }
 
-var trailingNumberPeriod = regexp.MustCompile(`(\d)\.(\s*[},\]])`)
+var (
+	trailingNumberNonDigit  = regexp.MustCompile(`([0-9]+(?:\.[0-9]+)?)\.(?=\D)`)
+	trailingNumberBeforeEOL = regexp.MustCompile(`([0-9]+(?:\.[0-9]+)?)\.[\s]*$`)
+)
 
 func sanitizeModelJSON(raw string) string {
-	cleaned := trailingNumberPeriod.ReplaceAllString(raw, `$1$2`)
+	cleaned := trailingNumberNonDigit.ReplaceAllString(raw, `$1`)
+	cleaned = trailingNumberBeforeEOL.ReplaceAllString(cleaned, `$1`)
+	cleaned = strings.ReplaceAll(cleaned, `..`, `.`)
 	return cleaned
 }
 
