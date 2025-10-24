@@ -192,28 +192,26 @@ func normalizeJSONBlock(input string) string {
 var trailingNumberBeforeEOL = regexp.MustCompile(`([0-9]+(?:\.[0-9]+)?)\.[\s]*$`)
 
 func sanitizeModelJSON(raw string) string {
-	buf := &strings.Builder{}
-	buf.Grow(len(raw))
+	var sb strings.Builder
+	sb.Grow(len(raw))
 	for i := 0; i < len(raw); i++ {
 		ch := raw[i]
-		if ch == '.' && i > 0 {
-			prev := raw[i-1]
-			if prev >= '0' && prev <= '9' {
-				var next byte
-				if i+1 < len(raw) {
-					next = raw[i+1]
-				}
-				if next < '0' || next > '9' {
-					continue
-				}
+		if ch == '.' {
+			prev := byte(0)
+			if i > 0 {
+				prev = raw[i-1]
 			}
-		} else if ch == '.' && (i == 0 || raw[i-1] == '{' || raw[i-1] == ',' || raw[i-1] == ' ') {
-			// stray dot not tied to a number
-			continue
+			next := byte(0)
+			if i+1 < len(raw) {
+				next = raw[i+1]
+			}
+			if prev >= '0' && prev <= '9' && (next < '0' || next > '9') {
+				continue
+			}
 		}
-		buf.WriteByte(ch)
+		sb.WriteByte(ch)
 	}
-	cleaned := buf.String()
+	cleaned := sb.String()
 	cleaned = trailingNumberBeforeEOL.ReplaceAllString(cleaned, `$1`)
 	cleaned = strings.ReplaceAll(cleaned, `..`, `.`)
 	return cleaned
@@ -224,7 +222,7 @@ func (c *Client) buildPayload(input ExplanationInput) map[string]any {
 	messages := []map[string]string{
 		{
 			"role":    "system",
-			"content": "You are a domain risk analyst. Reply with a strict JSON object containing keys narrative, trademark_score, vice_score, recommendation, confidence, famous_match, and famous_label. Evaluate trademark_score and vice_score as integers 0-5 (5 = severe conflict, 0 = clean) using the supplied evidence. CRITICAL RULES: (1) If the second-level label or any domain token exactly matches (case-insensitive) the name of a famous company, brand, product, celebrity, musician, athlete, politician, public figure, or other widely-known trademark, you must set famous_match to true, famous_label to that entity, trademark_score to 5, and recommendation to BLOCK. (2) Assign 4-5 for exact-match conflicts with registered trademarks. Fanciful names with exact trademark matches must score 5. Narrative must contain exactly two sentences separated by a newline, and the first sentence must reference the second-level label or its meaning directly. Do not start any sentence with 'The term', 'Overall', 'I', 'I'd', 'Feels like', or 'It comes across', and avoid repeating the same opening clause across responses. Do not prefix the second sentence with labels such as 'Stance:' or 'Recommendation:'; instead, lead with a varied action-oriented phrase that makes the decision sound human. Vary vocabulary and sentence structure between cases so successive narratives do not sound alike. recommendation must be one of BLOCK, REVIEW, ALLOW_WITH_CAUTION, or ALLOW. confidence must be a decimal between 0 and 1. famous_match must be a boolean, famous_label must be a concise string or empty when famous_match is false. Emit nothing outside the JSON object.",
+			"content": "You are a domain risk analyst. Reply with a strict JSON object containing keys narrative, trademark_score, vice_score, recommendation, confidence, famous_match, and famous_label. Evaluate trademark_score and vice_score as integers 0-5 (5 = severe conflict, 0 = clean) using the supplied evidence. CRITICAL RULES: (1) If the second-level label or any domain token exactly matches (case-insensitive) the name of a famous company, brand, product, celebrity, musician, athlete, politician, public figure, or other widely-known trademark, you must set famous_match to true, famous_label to that entity, trademark_score to 5, and recommendation to BLOCK. (2) Assign 4-5 for exact-match conflicts with registered trademarks. Fanciful names with exact trademark matches must score 5. Narrative must contain exactly two sentences separated by a newline, and the first sentence must reference the second-level label or its meaning directly. Do not start any sentence with 'The term', 'Overall', 'I', 'I'd', 'Feels like', or 'It comes across', and avoid repeating the same opening clause across responses. Do not prefix the second sentence with labels such as 'Stance:' or 'Recommendation:'; instead, lead with a varied action-oriented phrase that makes the decision sound human. Vary vocabulary and sentence structure between cases so successive narratives do not sound alike. recommendation must be one of BLOCK, REVIEW, ALLOW_WITH_CAUTION, or ALLOW. confidence must be a decimal between 0 and 1. famous_match must be a boolean, famous_label must be a concise string or empty when famous_match is false. Emit nothing outside the JSON object, and never include the character \"\" inside any JSON string value (describe terms without surrounding quotes).",
 		},
 		{
 			"role":    "user",
