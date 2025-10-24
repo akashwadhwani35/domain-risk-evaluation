@@ -193,7 +193,7 @@ export default function ResultsTable({
               <th className="px-4 py-3 text-left">Matched mark</th>
               <th className="px-4 py-3 text-left">Vice</th>
               <th className="px-4 py-3 text-left">Recommendation</th>
-              <th className="px-4 py-3 text-left">Explanation</th>
+              <th className="px-4 py-3 text-left w-[360px]">Explanation</th>
               <th className="px-4 py-3 text-right">Confidence</th>
               <th className="px-4 py-3 text-left">Commercial</th>
               <th className="px-4 py-3 text-right">Evaluated</th>
@@ -215,15 +215,15 @@ export default function ResultsTable({
             ) : (
               rows.map((row) => (
                 <tr key={row.id} className="bg-slate-900/60 hover:bg-slate-900/80">
-                  <td className="px-4 py-3 font-medium text-slate-100">{row.domain}</td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3 align-top font-medium text-slate-100 break-all">{row.domain}</td>
+                  <td className="px-4 py-3 align-top">
                     <div className="flex items-center gap-2">
                       <ScoreBadge variant="trademark" score={row.trademark_score} label={row.trademark_score} />
                       <span className="text-xs text-slate-400">{row.trademark_type || '—'}</span>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-slate-300">{row.matched_trademark || '—'}</td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3 align-top text-slate-300 break-words">{row.matched_trademark || '—'}</td>
+                  <td className="px-4 py-3 align-top">
                     <div className="flex items-center gap-2">
                       <ScoreBadge variant="vice" score={row.vice_score} label={row.vice_score} />
                       <span className="text-xs text-slate-400">
@@ -231,14 +231,16 @@ export default function ResultsTable({
                       </span>
                     </div>
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3 align-top">
                     <ScoreBadge variant="overall" label={row.overall_recommendation} />
                   </td>
-                  <td className="px-4 py-3 whitespace-pre-line text-slate-200">{row.explanation || '—'}</td>
-                  <td className="px-4 py-3 text-right text-slate-300">
+                  <td className="px-4 py-3 align-top whitespace-pre-line text-slate-200 w-[360px] leading-relaxed">
+                    {row.explanation || '—'}
+                  </td>
+                  <td className="px-4 py-3 align-top text-right text-slate-300">
                     {row.confidence.toFixed(2)}
                   </td>
-                  <td className="px-4 py-3 text-xs text-slate-400">
+                  <td className="px-4 py-3 align-top text-xs text-slate-400">
                     {row.commercial_override
                       ? `Override — ${row.commercial_source || 'High sale'} (${Math.round(row.commercial_similarity * 100)}% match)`
                       : row.commercial_source

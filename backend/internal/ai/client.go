@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -145,6 +146,8 @@ func (c *Client) Explain(ctx context.Context, input ExplanationInput) (Decision,
 		return Decision{}, errors.New("openai empty narrative")
 	}
 
+	content = sanitizeModelJSON(content)
+
 	var decision Decision
 	if err := json.Unmarshal([]byte(content), &decision); err != nil {
 		return Decision{}, fmt.Errorf("parse ai response: %w", err)
@@ -182,6 +185,13 @@ func normalizeJSONBlock(input string) string {
 		return strings.TrimSpace(trimmed[start : end+1])
 	}
 	return trimmed
+}
+
+var trailingNumberPeriod = regexp.MustCompile(`(\d)\.(\s*[},\]])`)
+
+func sanitizeModelJSON(raw string) string {
+	cleaned := trailingNumberPeriod.ReplaceAllString(raw, `$1$2`)
+	return cleaned
 }
 
 func (c *Client) buildPayload(input ExplanationInput) map[string]any {
