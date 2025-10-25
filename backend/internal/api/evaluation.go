@@ -654,6 +654,12 @@ func (s *Server) evaluateDomain(
 			decision = ai.Decision{
 				Recommendation: overall.Recommendation,
 			}
+		} else if isTemporaryAIError(err) {
+			aiFallback = true
+			logger.WithError(err).Warn("AI decision temporary failure; using heuristic fallback")
+			decision = ai.Decision{
+				Recommendation: overall.Recommendation,
+			}
 		} else {
 			logger.WithError(err).Error("AI decision failed")
 			result.Err = err
@@ -856,13 +862,31 @@ func shouldRetryAI(err error) bool {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
-	if strings.Contains(msg, "status 429") || strings.Contains(msg, "status 500") || strings.Contains(msg, "status 503") {
+	if strings.Contains(msg, "status 429") ||
+		strings.Contains(msg, "status 500") ||
+		strings.Contains(msg, "status 502") ||
+		strings.Contains(msg, "status 503") ||
+		strings.Contains(msg, "status 504") {
 		return true
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
 	return strings.Contains(msg, "context deadline exceeded") || strings.Contains(msg, "timeout exceeded while awaiting headers") || strings.Contains(msg, "client.timeout exceeded")
+}
+
+func isTemporaryAIError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "openai status 5") {
+		return true
+	}
+	if strings.Contains(msg, "timeout exceeded") || strings.Contains(msg, "client.timeout exceeded") {
+		return true
+	}
+	return false
 }
 
 func splitDomainParts(domain string) (string, string) {
