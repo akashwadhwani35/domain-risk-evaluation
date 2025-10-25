@@ -610,7 +610,7 @@ func (s *Server) evaluateDomain(
 	secondLevel, topLevel := splitDomainParts(domainValue)
 	normalizedSecondLevel := strings.ToLower(strings.TrimSpace(secondLevel))
 	popularToken := scoring.IsPopularToken(normalizedSecondLevel)
-	genericPopular := popularToken && scoring.IsCommonDictionaryWord(normalizedSecondLevel)
+	genericPopular := scoring.IsCommonDictionaryWord(normalizedSecondLevel)
 	fancifulUnknown := strings.EqualFold(fallbackResult.Type, "fanciful") && !popularToken
 	if s.commercial != nil {
 		if match, ok := s.commercial.BestMatch(secondLevel); ok && match.Similarity >= commercialSimilarityThreshold {
@@ -694,7 +694,14 @@ func (s *Server) evaluateDomain(
 		if decision.TrademarkScore != nil {
 			finalScore = clampScore(*decision.TrademarkScore)
 		}
-		if popularToken {
+		if genericPopular {
+			finalScore = 3
+			trademarkResult.Type = "generic"
+			if decision.FamousMatch != nil {
+				*decision.FamousMatch = false
+			}
+			decision.FamousLabel = ""
+		} else if popularToken {
 			finalScore = 5
 			if decision.FamousMatch == nil {
 				decision.FamousMatch = new(bool)
@@ -707,8 +714,6 @@ func (s *Server) evaluateDomain(
 				}
 				decision.FamousLabel = label
 			}
-		} else if genericPopular {
-			finalScore = 3
 		} else if fancifulUnknown && finalScore > 3 {
 			finalScore = 3
 		}
@@ -745,10 +750,10 @@ func (s *Server) evaluateDomain(
 		if finalRec == "" {
 			finalRec = overall.Recommendation
 		}
-		if popularToken {
-			finalRec = "BLOCK"
-		} else if genericPopular && finalRec == "BLOCK" {
+		if genericPopular {
 			finalRec = "REVIEW"
+		} else if popularToken {
+			finalRec = "BLOCK"
 		} else if fancifulUnknown && (finalRec == "ALLOW" || finalRec == "ALLOW_WITH_CAUTION") {
 			finalRec = "REVIEW"
 		}

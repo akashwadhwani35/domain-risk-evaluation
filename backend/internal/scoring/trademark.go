@@ -11,6 +11,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"domain-risk-eval/backend/internal/dict"
 	"domain-risk-eval/backend/internal/match"
 	"domain-risk-eval/backend/internal/store"
 )
@@ -200,7 +201,14 @@ func LoadMarks(db *store.Database, limit int) ([]store.Mark, error) {
 
 // IsCommonDictionaryWord reports whether the supplied token is a common English dictionary word.
 func IsCommonDictionaryWord(token string) bool {
-	return isCommonWord(sanitizeLabel(token))
+	token = sanitizeLabel(token)
+	if token == "" {
+		return false
+	}
+	if dict.IsEnglishWord(token) {
+		return true
+	}
+	return isCommonWord(token)
 }
 
 func extractSLD(profile match.DomainProfile) string {
