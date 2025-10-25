@@ -198,6 +198,11 @@ func LoadMarks(db *store.Database, limit int) ([]store.Mark, error) {
 	return marks, nil
 }
 
+// IsCommonDictionaryWord reports whether the supplied token is a common English dictionary word.
+func IsCommonDictionaryWord(token string) bool {
+	return isCommonWord(sanitizeLabel(token))
+}
+
 func extractSLD(profile match.DomainProfile) string {
 	host := strings.ToLower(strings.TrimSpace(profile.Host))
 	if host == "" {

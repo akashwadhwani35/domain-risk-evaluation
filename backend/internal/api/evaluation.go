@@ -341,10 +341,15 @@ func (s *Server) runEvaluation(ctx context.Context, job *evaluationJob, req Eval
 	activeErrCh := errCh
 	done := false
 
+loop:
 	for activeResultCh != nil || activeErrCh != nil {
 		select {
 		case <-ctx.Done():
 			flush(true)
+			if done {
+				logrus.WithField("job", job.id).WithField("batch_id", job.batchID).Info("evaluation context closed after completion")
+				break loop
+			}
 			finishStatus = "cancelled"
 			s.evalNotifier.Broadcast(EvaluationEvent{
 				Type:      "cancelled",
@@ -603,6 +608,10 @@ func (s *Server) evaluateDomain(
 	commercialPrice := 0.0
 
 	secondLevel, topLevel := splitDomainParts(domainValue)
+	normalizedSecondLevel := strings.ToLower(strings.TrimSpace(secondLevel))
+	popularToken := scoring.IsPopularToken(normalizedSecondLevel)
+	genericPopular := popularToken && scoring.IsCommonDictionaryWord(normalizedSecondLevel)
+	fancifulUnknown := strings.EqualFold(fallbackResult.Type, "fanciful") && !popularToken
 	if s.commercial != nil {
 		if match, ok := s.commercial.BestMatch(secondLevel); ok && match.Similarity >= commercialSimilarityThreshold {
 			commercialSimilarity = match.Similarity
@@ -626,6 +635,9 @@ func (s *Server) evaluateDomain(
 		"commercial_source":     commercialSource,
 		"commercial_similarity": commercialSimilarity,
 		"commercial_price":      commercialPrice,
+		"popular_token":         popularToken,
+		"generic_popular":       genericPopular,
+		"fanciful_unknown":      fancifulUnknown,
 	}).Info("preparing AI decision input")
 
 	decision, err := s.generateDecision(
@@ -638,6 +650,9 @@ func (s *Server) evaluateDomain(
 		trademarkResult,
 		viceResult,
 		overall,
+		popularToken,
+		genericPopular,
+		fancifulUnknown,
 		secondLevel,
 		topLevel,
 		commercialOverride,
@@ -667,46 +682,105 @@ func (s *Server) evaluateDomain(
 		}
 	}
 
-	if decision.FamousMatch != nil && *decision.FamousMatch {
-		if decision.TrademarkScore == nil || *decision.TrademarkScore < 5 {
-			score := 5
-			decision.TrademarkScore = &score
+	if aiFallback {
+		combined := scoring.CombineRecommendation(trademarkResult, viceResult)
+		overall.Recommendation = combined.Recommendation
+		overall.Confidence = combined.Confidence
+		if decision.Recommendation == "" {
+			decision.Recommendation = overall.Recommendation
 		}
-		decision.Recommendation = "BLOCK"
-	}
+	} else {
+		finalScore := trademarkResult.Score
+		if decision.TrademarkScore != nil {
+			finalScore = clampScore(*decision.TrademarkScore)
+		}
+		if popularToken {
+			finalScore = 5
+			if decision.FamousMatch == nil {
+				decision.FamousMatch = new(bool)
+			}
+			*decision.FamousMatch = true
+			if strings.TrimSpace(decision.FamousLabel) == "" {
+				label := strings.TrimSpace(secondLevel)
+				if label == "" {
+					label = strings.ToUpper(normalizedSecondLevel)
+				}
+				decision.FamousLabel = label
+			}
+		} else if genericPopular {
+			finalScore = 3
+		} else if fancifulUnknown && finalScore > 3 {
+			finalScore = 3
+		}
+		scoreCopy := finalScore
+		decision.TrademarkScore = &scoreCopy
+		trademarkResult.Score = finalScore
+		if popularToken {
+			trademarkResult.Type = "popular"
+			if strings.TrimSpace(trademarkResult.MatchedTrademark) == "" {
+				trademarkResult.MatchedTrademark = strings.TrimSpace(strings.ToUpper(normalizedSecondLevel))
+			}
+			trademarkResult.Confidence = 0.95
+		} else if genericPopular {
+			trademarkResult.Type = "generic"
+			if trademarkResult.Confidence < 0.75 {
+				trademarkResult.Confidence = 0.75
+			}
+		} else if fancifulUnknown {
+			trademarkResult.Type = "fanciful"
+			if trademarkResult.Confidence < 0.7 {
+				trademarkResult.Confidence = 0.7
+			}
+		}
 
-	if decision.TrademarkScore != nil {
-		trademarkResult.Score = clampScore(*decision.TrademarkScore)
-	}
-	if decision.ViceScore != nil {
-		viceResult.Score = clampScore(*decision.ViceScore)
-	}
+		finalViceScore := viceResult.Score
+		if decision.ViceScore != nil {
+			finalViceScore = clampScore(*decision.ViceScore)
+		}
+		viceResult.Score = finalViceScore
+		viceCopy := finalViceScore
+		decision.ViceScore = &viceCopy
 
-	combined := scoring.CombineRecommendation(trademarkResult, viceResult)
-	overall.Recommendation = combined.Recommendation
-	overall.Confidence = combined.Confidence
+		finalRec := strings.ToUpper(strings.TrimSpace(decision.Recommendation))
+		if finalRec == "" {
+			finalRec = overall.Recommendation
+		}
+		if popularToken {
+			finalRec = "BLOCK"
+		} else if genericPopular && finalRec == "BLOCK" {
+			finalRec = "REVIEW"
+		} else if fancifulUnknown && (finalRec == "ALLOW" || finalRec == "ALLOW_WITH_CAUTION") {
+			finalRec = "REVIEW"
+		}
+		if viceResult.Score >= 4 {
+			finalRec = "BLOCK"
+		} else if viceResult.Score == 3 && finalRec == "ALLOW" {
+			finalRec = "REVIEW"
+		}
+		decision.Recommendation = finalRec
+		overall.Recommendation = finalRec
 
-	finalRec := strings.ToUpper(strings.TrimSpace(decision.Recommendation))
-	if finalRec == "" {
-		finalRec = overall.Recommendation
-	}
-	if trademarkResult.Score >= 5 && finalRec != "BLOCK" {
-		logrus.WithFields(logrus.Fields{
-			"job":               jobID,
-			"batch_id":          batchID,
-			"domain":            domainValue,
-			"ai_recommendation": finalRec,
-			"trademark_score":   trademarkResult.Score,
-		}).Warn("forcing BLOCK due to high trademark score")
-		finalRec = "BLOCK"
-	}
-	overall.Recommendation = finalRec
+		if decision.Confidence == nil {
+			if popularToken {
+				conf := 0.95
+				decision.Confidence = &conf
+			} else if genericPopular || fancifulUnknown {
+				conf := 0.75
+				decision.Confidence = &conf
+			}
+		}
 
-	if decision.Confidence != nil {
-		conf := clampConfidence(*decision.Confidence)
-		overall.Confidence = conf
-		trademarkResult.Confidence = conf
-		viceResult.Confidence = conf
+		if decision.Confidence != nil {
+			conf := clampConfidence(*decision.Confidence)
+			overall.Confidence = conf
+			trademarkResult.Confidence = conf
+			if viceResult.Confidence == 0 {
+				viceResult.Confidence = conf
+			}
+		} else {
+			combined := scoring.CombineRecommendation(trademarkResult, viceResult)
+			overall.Confidence = combined.Confidence
+		}
 	}
 
 	logger.WithFields(logrus.Fields{
@@ -762,6 +836,9 @@ func (s *Server) generateDecision(
 	trademarkResult scoring.TrademarkResult,
 	viceResult scoring.ViceResult,
 	overall scoring.OverallResult,
+	popularToken bool,
+	genericPopular bool,
+	fancifulUnknown bool,
 	secondLevel string,
 	topLevel string,
 	commercialOverride bool,
@@ -782,6 +859,9 @@ func (s *Server) generateDecision(
 		Trademark:            trademarkResult,
 		Vice:                 viceResult,
 		Overall:              overall,
+		PopularToken:         popularToken,
+		GenericPopular:       genericPopular,
+		FancifulUnknown:      fancifulUnknown,
 		OpeningCue:           selectOpeningCue(secondLevel),
 		MarksCount:           len(marks),
 		DomainsCount:         int(totalDomains),

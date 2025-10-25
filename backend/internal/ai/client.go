@@ -37,6 +37,9 @@ type ExplanationInput struct {
 	Trademark            scoring.TrademarkResult
 	Vice                 scoring.ViceResult
 	Overall              scoring.OverallResult
+	PopularToken         bool
+	GenericPopular       bool
+	FancifulUnknown      bool
 	OpeningCue           string
 	MarksCount           int
 	DomainsCount         int
@@ -237,7 +240,7 @@ func (c *Client) buildPayload(input ExplanationInput) map[string]any {
 	messages := []map[string]string{
 		{
 			"role":    "system",
-			"content": "You are a domain risk analyst. Reply with a strict JSON object containing keys narrative, trademark_score, vice_score, recommendation, confidence, famous_match, and famous_label. Evaluate trademark_score and vice_score as integers 0-5 (5 = severe conflict, 0 = clean) using the supplied evidence. CRITICAL RULES: (1) If the second-level label or any domain token exactly matches (case-insensitive) the name of a famous company, brand, product, celebrity, musician, athlete, politician, public figure, or other widely-known trademark, you must set famous_match to true, famous_label to that entity, trademark_score to 5, and recommendation to BLOCK. (2) Assign 4-5 for exact-match conflicts with registered trademarks. Fanciful names with exact trademark matches must score 5. Narrative must contain exactly two sentences separated by a newline, and the first sentence must reference the second-level label or its meaning directly. Do not start any sentence with 'The term', 'Overall', 'I', 'I'd', 'Feels like', or 'It comes across', and avoid repeating the same opening clause across responses. Do not prefix the second sentence with labels such as 'Stance:' or 'Recommendation:'; instead, lead with a varied action-oriented phrase that makes the decision sound human. Vary vocabulary and sentence structure between cases so successive narratives do not sound alike. recommendation must be one of BLOCK, REVIEW, ALLOW_WITH_CAUTION, or ALLOW. confidence must be a decimal between 0 and 1. famous_match must be a boolean, famous_label must be a concise string or empty when famous_match is false. Emit nothing outside the JSON object, and never include the character \"\" inside any JSON string value (describe terms without surrounding quotes).",
+			"content": "You are a domain risk analyst. Reply with a strict JSON object containing keys narrative, trademark_score, vice_score, recommendation, confidence, famous_match, and famous_label. Evaluate trademark_score and vice_score as integers 0-5 (5 = severe conflict, 0 = clean) using the supplied evidence. Apply these rules:\n1. If the second-level label or any domain token is a well-known brand, personality, product, organization, or entertainment property (popular_token == true), set trademark_score to 5, recommendation to BLOCK, famous_match to true, and famous_label to that entity—even when heuristics suggested otherwise.\n2. If generic_popular == true (common English word heavily used by multiple parties such as crown, jeep, delta, liberty), cap trademark_score at 3 and recommendation at REVIEW unless additional evidence proves a famous-exclusive claim.\n3. If fanciful_unknown == true (invented spelling with no evidence of fame), default trademark_score to 3 and recommendation to REVIEW unless other evidence warrants escalation.\n4. Respect vice signals: vice_score >=4 must BLOCK, vice_score ==3 must at least REVIEW.\n5. Vice and trademark reasoning should combine logically; if both are clean, ALLOW or ALLOW_WITH_CAUTION only when appropriate.\nNarrative must contain exactly two sentences separated by a newline, the first sentence must reference the second-level label directly, and the second sentence must justify the action using concrete evidence. Do not start sentences with 'The term', 'Overall', 'I', 'I'd', 'Feels like', or 'It comes across', and avoid repeating opening clauses. Do not prefix the second sentence with labels like 'Stance:' or 'Recommendation:'. Vary vocabulary between responses. recommendation must be one of BLOCK, REVIEW, ALLOW_WITH_CAUTION, or ALLOW. confidence must be a decimal between 0 and 1. famous_match must be a boolean, famous_label must be concise or empty when famous_match is false. Emit nothing outside the JSON object, and never include the character \"\" inside any JSON string value.",
 		},
 		{
 			"role":    "user",
@@ -260,6 +263,9 @@ func (c *Client) buildUserPrompt(input ExplanationInput) string {
 	fmt.Fprintf(builder, "Domain: %s\n", input.Domain)
 	fmt.Fprintf(builder, "Second-level label: %s\n", strings.TrimSpace(input.SecondLevel))
 	fmt.Fprintf(builder, "Top-level domain: %s\n", strings.TrimSpace(input.TopLevel))
+	fmt.Fprintf(builder, "Popular token: %t\n", input.PopularToken)
+	fmt.Fprintf(builder, "Generic popular token: %t\n", input.GenericPopular)
+	fmt.Fprintf(builder, "Fanciful unknown token: %t\n", input.FancifulUnknown)
 	if len(input.DomainTokens) > 0 {
 		fmt.Fprintf(builder, "Domain tokens: %s\n", strings.Join(input.DomainTokens, ", "))
 	}
