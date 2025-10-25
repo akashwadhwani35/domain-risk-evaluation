@@ -694,7 +694,8 @@ func (s *Server) evaluateDomain(
 		if decision.TrademarkScore != nil {
 			finalScore = clampScore(*decision.TrademarkScore)
 		}
-		if genericPopular {
+		popularWithoutTrademark := popularToken && strings.TrimSpace(trademarkResult.MatchedTrademark) == ""
+		if genericPopular || popularWithoutTrademark {
 			finalScore = 3
 			trademarkResult.Type = "generic"
 			if decision.FamousMatch != nil {
@@ -726,7 +727,7 @@ func (s *Server) evaluateDomain(
 				trademarkResult.MatchedTrademark = strings.TrimSpace(strings.ToUpper(normalizedSecondLevel))
 			}
 			trademarkResult.Confidence = 0.95
-		} else if genericPopular {
+		} else if genericPopular || popularWithoutTrademark {
 			trademarkResult.Type = "generic"
 			if trademarkResult.Confidence < 0.75 {
 				trademarkResult.Confidence = 0.75
@@ -750,7 +751,7 @@ func (s *Server) evaluateDomain(
 		if finalRec == "" {
 			finalRec = overall.Recommendation
 		}
-		if genericPopular {
+		if genericPopular || popularWithoutTrademark {
 			finalRec = "REVIEW"
 		} else if popularToken {
 			finalRec = "BLOCK"
