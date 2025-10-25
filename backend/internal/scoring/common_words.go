@@ -843,12 +843,23 @@ var commonWordSet = map[string]struct{}{
 	"yourself":       {},
 }
 
+var genericPopularOverrides = map[string]struct{}{
+	"crown":  {},
+	"jeep":   {},
+	"trojan": {},
+	"sinner": {},
+}
+
 func isCommonWord(token string) bool {
 	token = sanitizeDictionaryToken(token)
 	if token == "" {
 		return false
 	}
 	_, ok := commonWordSet[token]
+	if ok {
+		return true
+	}
+	_, ok = genericPopularOverrides[token]
 	return ok
 }
 
