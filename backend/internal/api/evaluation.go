@@ -46,6 +46,7 @@ type domainResult struct {
 	LookupDuration time.Duration
 	AiDuration     time.Duration
 	TotalDuration  time.Duration
+	AIFallback     bool
 	Err            error
 }
 
@@ -431,6 +432,7 @@ func (s *Server) runEvaluation(ctx context.Context, job *evaluationJob, req Eval
 				Total:      job.total,
 				Processed:  totalProcessed,
 				Evaluation: &dto,
+				Reused:     res.AIFallback,
 			}
 			hasPending = true
 			totalElapsed := res.TotalDuration + saveDuration
@@ -644,10 +646,19 @@ func (s *Server) evaluateDomain(
 		commercialPrice,
 	)
 	aiDuration := time.Since(aiStart)
+	aiFallback := false
 	if err != nil {
-		logger.WithError(err).Error("AI decision failed")
-		result.Err = err
-		return result
+		if errors.Is(err, ai.ErrInvalidJSON) {
+			aiFallback = true
+			logger.WithError(err).Warn("AI decision parse failed; using heuristic fallback")
+			decision = ai.Decision{
+				Recommendation: overall.Recommendation,
+			}
+		} else {
+			logger.WithError(err).Error("AI decision failed")
+			result.Err = err
+			return result
+		}
 	}
 
 	if decision.FamousMatch != nil && *decision.FamousMatch {
@@ -698,6 +709,7 @@ func (s *Server) evaluateDomain(
 		"ai_recommendation":  decision.Recommendation,
 		"ai_confidence":      decision.Confidence,
 		"ai_ms":              aiDuration.Milliseconds(),
+		"ai_fallback":        aiFallback,
 	}).Info("AI decision completed")
 
 	eval := store.Evaluation{
@@ -722,6 +734,7 @@ func (s *Server) evaluateDomain(
 	result.LookupDuration = lookupDuration
 	result.AiDuration = aiDuration
 	result.TotalDuration = time.Since(domainStart)
+	result.AIFallback = aiFallback
 
 	logger.WithFields(logrus.Fields{
 		"trademark_score":        eval.TrademarkScore,

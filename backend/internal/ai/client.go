@@ -64,7 +64,22 @@ type Client struct {
 	maxTokens   int
 }
 
-var ErrDisabled = errors.New("ai explainer disabled")
+var (
+	ErrDisabled    = errors.New("ai explainer disabled")
+	ErrInvalidJSON = errors.New("ai response invalid json")
+)
+
+type invalidJSONError struct {
+	err error
+}
+
+func (e *invalidJSONError) Error() string {
+	return fmt.Sprintf("parse ai response: %v", e.err)
+}
+
+func (e *invalidJSONError) Unwrap() error {
+	return ErrInvalidJSON
+}
 
 // NewClient constructs a Client if the supplied configuration is valid.
 func NewClient(cfg Config) (*Client, error) {
@@ -152,7 +167,7 @@ func (c *Client) Explain(ctx context.Context, input ExplanationInput) (Decision,
 	var decision Decision
 	if err := json.Unmarshal([]byte(content), &decision); err != nil {
 		logrus.WithError(err).WithField("content", content).Warn("ai response parse failed")
-		return Decision{}, fmt.Errorf("parse ai response: %w", err)
+		return Decision{}, &invalidJSONError{err: err}
 	}
 
 	sanitizeDecision(&decision)
