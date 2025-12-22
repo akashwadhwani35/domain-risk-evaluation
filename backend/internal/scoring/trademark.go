@@ -54,39 +54,71 @@ func (s *TrademarkScorer) Score(profile match.DomainProfile) TrademarkResult {
 	}
 
 	if entry := s.index.lookupExact(sld); entry != nil {
-		markType := s.index.classify(entry)
-		isCommon := isCommonWord(sld)
-		popularToken := IsPopularToken(sld)
-		resultType := markType
-		if popularToken && markType != "fanciful" {
-			resultType = "popular"
+		return s.scoreExact(entry, sld)
+	}
+
+	if compound := s.scoreCompound(profile, sld); compound.Score > 0 {
+		return compound
+	}
+
+	return TrademarkResult{Score: 0, Type: "none", Confidence: 0.2}
+}
+
+func (s *TrademarkScorer) scoreExact(entry *store.Mark, token string) TrademarkResult {
+	markType := s.index.classify(entry)
+	isCommon := isCommonWord(token)
+
+	switch markType {
+	case "fanciful":
+		return TrademarkResult{Score: 5, Type: "fanciful", MatchedTrademark: entry.Mark, Confidence: 0.95}
+	case "popular":
+		return TrademarkResult{Score: 3, Type: "popular", MatchedTrademark: entry.Mark, Confidence: 0.8}
+	default:
+		if isCommon {
+			return TrademarkResult{Score: 2, Type: "generic", MatchedTrademark: entry.Mark, Confidence: 0.6}
 		}
-		switch markType {
-		case "fanciful":
-			if isCommon {
-				return TrademarkResult{Score: 2, Type: "generic", MatchedTrademark: entry.Mark, Confidence: 0.6}
+		return TrademarkResult{Score: 2, Type: "generic", MatchedTrademark: entry.Mark, Confidence: 0.5}
+	}
+}
+
+func (s *TrademarkScorer) scoreCompound(profile match.DomainProfile, token string) TrademarkResult {
+	if s == nil || s.index == nil {
+		return TrademarkResult{Score: 0, Type: "none", Confidence: 0.2}
+	}
+
+	for _, part := range profile.AltSplits {
+		part = sanitizeLabel(part)
+		if part == "" {
+			continue
+		}
+		entry := s.index.lookupExact(part)
+		if entry == nil {
+			continue
+		}
+		markType := s.index.classify(entry)
+		if markType == "fanciful" {
+			extraLen := extraTokenLength(token, part)
+			if extraLen > 0 && extraLen <= 4 {
+				return TrademarkResult{Score: 4, Type: "fanciful_variation", MatchedTrademark: entry.Mark, Confidence: 0.85}
 			}
-			if popularToken {
-				return TrademarkResult{Score: 5, Type: resultType, MatchedTrademark: entry.Mark, Confidence: 0.98}
-			}
-			return TrademarkResult{Score: 4, Type: resultType, MatchedTrademark: entry.Mark, Confidence: 0.9}
-		case "popular":
-			if isCommon {
-				return TrademarkResult{Score: 3, Type: markType, MatchedTrademark: entry.Mark, Confidence: 0.75}
-			}
-			return TrademarkResult{Score: 5, Type: markType, MatchedTrademark: entry.Mark, Confidence: 0.95}
-		default:
-			if popularToken && !isCommon {
-				return TrademarkResult{Score: 5, Type: "popular", MatchedTrademark: entry.Mark, Confidence: 0.9}
-			}
-			if isCommon {
-				return TrademarkResult{Score: 2, Type: "generic", MatchedTrademark: entry.Mark, Confidence: 0.6}
-			}
-			return TrademarkResult{Score: 0, Type: markType, MatchedTrademark: entry.Mark, Confidence: 0.4}
+			return TrademarkResult{Score: 1, Type: "fanciful_compound", MatchedTrademark: entry.Mark, Confidence: 0.7}
+		}
+		if markType == "popular" {
+			return TrademarkResult{Score: 3, Type: "popular", MatchedTrademark: entry.Mark, Confidence: 0.7}
 		}
 	}
 
 	return TrademarkResult{Score: 0, Type: "none", Confidence: 0.2}
+}
+
+func extraTokenLength(token, part string) int {
+	if strings.HasPrefix(token, part) {
+		return len(token) - len(part)
+	}
+	if strings.HasSuffix(token, part) {
+		return len(token) - len(part)
+	}
+	return 0
 }
 
 // trademarkIndex stores precomputed mark lookups.

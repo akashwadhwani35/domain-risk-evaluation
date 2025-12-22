@@ -16,13 +16,15 @@ func CombineRecommendation(tr TrademarkResult, vice ViceResult) OverallResult {
 		rec = "BLOCK"
 	case tr.Score >= 5:
 		rec = "BLOCK"
+	case tr.Score == 4:
+		rec = "BLOCK"
 	case vice.Score == 3:
 		rec = "REVIEW"
 	case tr.Score == 3:
 		rec = "REVIEW"
-	case tr.Score == 4:
-		rec = "ALLOW_WITH_CAUTION"
-	case vice.Score == 2 || tr.Score == 2:
+	case tr.Score == 2:
+		rec = "REVIEW"
+	case vice.Score == 2:
 		rec = "ALLOW_WITH_CAUTION"
 	case vice.Score == 1 || tr.Score == 1:
 		rec = "ALLOW_WITH_CAUTION"

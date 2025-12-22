@@ -14,10 +14,11 @@ func TestTrademarkScoringExactMatchOnly(t *testing.T) {
 	marks := []store.Mark{
 		{Serial: "1", Mark: "GOOGLE", MarkNoSpaces: "google", IsFanciful: true},
 		{Serial: "2", Mark: "Amazon", MarkNoSpaces: "amazon"},
+		{Serial: "4", Mark: "Microsoft", MarkNoSpaces: "microsoft", IsFanciful: true},
 		master,
 	}
 
-	seedPath := createSeedFile(t, []string{"google"})
+	seedPath := createSeedFile(t, []string{"google", "microsoft"})
 	scorer, err := NewTrademarkScorer(marks, seedPath)
 	if err != nil {
 		t.Fatalf("new scorer: %v", err)
@@ -31,8 +32,10 @@ func TestTrademarkScoringExactMatchOnly(t *testing.T) {
 		expectMatch string
 	}{
 		{"exact fanciful", "https://google.store", 5, "fanciful", "GOOGLE"},
-		{"exact popular", "amazon.io", 5, "popular", "Amazon"},
+		{"exact popular", "amazon.io", 3, "popular", "Amazon"},
 		{"generic dictionary word", "master.ai", 2, "generic", "Master"},
+		{"fanciful minor variation", "microsofttech.store", 4, "fanciful_variation", "Microsoft"},
+		{"fanciful compound", "microsoftsupport.store", 1, "fanciful_compound", "Microsoft"},
 		{"variant should ignore", "googl.store", 0, "none", ""},
 		{"compound should ignore", "amazonmarket.shop", 0, "none", ""},
 		{"ccTLD sld mismatch", "amazon.co.uk", 0, "none", ""},

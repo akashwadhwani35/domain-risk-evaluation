@@ -116,7 +116,7 @@ func (s *Server) runEvaluation(ctx context.Context, job *evaluationJob, req Eval
 	totalDomains := job.total
 	if totalDomains <= 0 {
 		finishStatus = "failed"
-		s.evalNotifier.Broadcast(EvaluationEvent{
+		s.broadcastJobEvent(job, EvaluationEvent{
 			Type:    "error",
 			JobID:   job.id,
 			BatchID: job.batchID,
@@ -129,7 +129,7 @@ func (s *Server) runEvaluation(ctx context.Context, job *evaluationJob, req Eval
 	if err != nil {
 		finishStatus = "failed"
 		finishErr = err
-		s.evalNotifier.Broadcast(EvaluationEvent{
+		s.broadcastJobEvent(job, EvaluationEvent{
 			Type:    "error",
 			JobID:   job.id,
 			BatchID: job.batchID,
@@ -149,7 +149,7 @@ func (s *Server) runEvaluation(ctx context.Context, job *evaluationJob, req Eval
 	if err != nil {
 		finishStatus = "failed"
 		finishErr = err
-		s.evalNotifier.Broadcast(EvaluationEvent{
+		s.broadcastJobEvent(job, EvaluationEvent{
 			Type:    "error",
 			JobID:   job.id,
 			BatchID: job.batchID,
@@ -169,7 +169,7 @@ func (s *Server) runEvaluation(ctx context.Context, job *evaluationJob, req Eval
 		if err != nil {
 			finishStatus = "failed"
 			finishErr = err
-			s.evalNotifier.Broadcast(EvaluationEvent{
+			s.broadcastJobEvent(job, EvaluationEvent{
 				Type:    "error",
 				JobID:   job.id,
 				BatchID: job.batchID,
@@ -197,7 +197,7 @@ func (s *Server) runEvaluation(ctx context.Context, job *evaluationJob, req Eval
 		"force":      req.Force,
 	}).Info("evaluation job started")
 
-	s.evalNotifier.Broadcast(EvaluationEvent{
+	s.broadcastJobEvent(job, EvaluationEvent{
 		Type:      "started",
 		JobID:     job.id,
 		BatchID:   job.batchID,
@@ -239,7 +239,7 @@ func (s *Server) runEvaluation(ctx context.Context, job *evaluationJob, req Eval
 			return
 		}
 		ev := pendingEvent
-		s.evalNotifier.Broadcast(ev)
+		s.broadcastJobEvent(job, ev)
 		lastEmit = time.Now()
 		logrus.WithFields(logrus.Fields{
 			"job":       job.id,
@@ -351,7 +351,7 @@ loop:
 				break loop
 			}
 			finishStatus = "cancelled"
-			s.evalNotifier.Broadcast(EvaluationEvent{
+			s.broadcastJobEvent(job, EvaluationEvent{
 				Type:      "cancelled",
 				JobID:     job.id,
 				BatchID:   job.batchID,
@@ -370,7 +370,7 @@ loop:
 				flush(true)
 				finishStatus = "failed"
 				finishErr = err
-				s.evalNotifier.Broadcast(EvaluationEvent{
+				s.broadcastJobEvent(job, EvaluationEvent{
 					Type:    "error",
 					JobID:   job.id,
 					BatchID: job.batchID,
@@ -392,7 +392,7 @@ loop:
 				flush(true)
 				finishStatus = "failed"
 				finishErr = res.Err
-				s.evalNotifier.Broadcast(EvaluationEvent{
+				s.broadcastJobEvent(job, EvaluationEvent{
 					Type:    "error",
 					JobID:   job.id,
 					BatchID: job.batchID,
@@ -409,7 +409,7 @@ loop:
 				flush(true)
 				finishStatus = "failed"
 				finishErr = err
-				s.evalNotifier.Broadcast(EvaluationEvent{
+				s.broadcastJobEvent(job, EvaluationEvent{
 					Type:    "error",
 					JobID:   job.id,
 					BatchID: job.batchID,
@@ -465,7 +465,7 @@ loop:
 	flush(true)
 
 	duration := time.Since(job.startedAt).Round(time.Millisecond)
-	s.evalNotifier.Broadcast(EvaluationEvent{
+	s.broadcastJobEvent(job, EvaluationEvent{
 		Type:      "complete",
 		JobID:     job.id,
 		BatchID:   job.batchID,

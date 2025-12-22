@@ -50,6 +50,16 @@ func (d *Database) GORM() *gorm.DB {
 	return d.gorm
 }
 
+// WithTransaction executes fn inside a database transaction.
+func (d *Database) WithTransaction(fn func(*Database) error) error {
+	if d == nil || d.gorm == nil {
+		return errors.New("database is nil")
+	}
+	return d.gorm.Transaction(func(tx *gorm.DB) error {
+		return fn(&Database{gorm: tx})
+	})
+}
+
 // Close closes the underlying database connection.
 func (d *Database) Close() error {
 	if d == nil {
@@ -341,6 +351,7 @@ func applyIndexes(db *gorm.DB) error {
 		"UPDATE evaluations SET domain_normalized = LOWER(domain) WHERE domain IS NOT NULL AND (domain_normalized IS NULL OR domain_normalized = '')",
 		"CREATE UNIQUE INDEX IF NOT EXISTS idx_domains_domain_normalized ON domains(domain_normalized)",
 		"CREATE INDEX IF NOT EXISTS idx_domains_brand_token ON domains(brand_token)",
+		"CREATE INDEX IF NOT EXISTS idx_domain_batches_batch_id ON domain_batches(batch_id)",
 		"CREATE INDEX IF NOT EXISTS idx_domain_batches_batch_domain_normalized ON domain_batches(batch_id, domain_normalized)",
 		"CREATE UNIQUE INDEX IF NOT EXISTS idx_evaluations_domain_normalized ON evaluations(domain_normalized)",
 		"CREATE INDEX IF NOT EXISTS idx_evaluations_trademark_score ON evaluations(trademark_score)",
@@ -348,6 +359,7 @@ func applyIndexes(db *gorm.DB) error {
 		"CREATE INDEX IF NOT EXISTS idx_marks_mark_normalized ON marks(mark_normalized)",
 		"CREATE INDEX IF NOT EXISTS idx_marks_mark_no_spaces ON marks(mark_no_spaces)",
 		"CREATE INDEX IF NOT EXISTS idx_marks_owner ON marks(owner)",
+		"CREATE INDEX IF NOT EXISTS idx_popular_marks_total ON popular_marks(total DESC)",
 		"CREATE INDEX IF NOT EXISTS idx_job_states_status_updated ON job_states(status, updated_at)",
 		"CREATE INDEX IF NOT EXISTS idx_job_states_batch ON job_states(batch_id)",
 	}
@@ -521,6 +533,86 @@ func (d *Database) UpdateBatchRequest(requestID uint, status string) error {
 		updates["finished_at"] = &now
 	}
 	return d.gorm.Model(&BatchRequest{}).Where("id = ?", requestID).Updates(updates).Error
+}
+
+// LatestRunningBatchRequest returns the most recent running batch request.
+func (d *Database) LatestRunningBatchRequest() (*BatchRequest, error) {
+	var request BatchRequest
+	if err := d.gorm.
+		Where("status = ?", "running").
+		Order("started_at DESC").
+		First(&request).Error; err != nil {
+		return nil, err
+	}
+	return &request, nil
+}
+
+// UpsertJobState inserts or updates a job state record.
+func (d *Database) UpsertJobState(state *JobState) error {
+	if state == nil {
+		return errors.New("job state is nil")
+	}
+	state.UpdatedAt = time.Now()
+	return d.gorm.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "job_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"batch_id", "request_id", "status", "message", "processed", "total", "last_event_json", "updated_at"}),
+	}).Create(state).Error
+}
+
+// GetLatestJobState returns the most recently updated job state.
+func (d *Database) GetLatestJobState() (*JobState, error) {
+	var state JobState
+	if err := d.gorm.Order("updated_at DESC").First(&state).Error; err != nil {
+		return nil, err
+	}
+	return &state, nil
+}
+
+// GetLatestRunningJobState returns the most recent running job state.
+func (d *Database) GetLatestRunningJobState() (*JobState, error) {
+	var state JobState
+	if err := d.gorm.
+		Where("status IN ?", []string{"started", "progress", "evaluation"}).
+		Order("updated_at DESC").
+		First(&state).Error; err != nil {
+		return nil, err
+	}
+	return &state, nil
+}
+
+// DeleteEvaluationsForBatchSafe deletes evaluations for domains unique to the batch.
+func (d *Database) DeleteEvaluationsForBatchSafe(batchID uint) (int64, error) {
+	result := d.gorm.Exec(`
+		DELETE FROM evaluations
+		WHERE domain_normalized IN (
+			SELECT domain_normalized FROM domain_batches WHERE batch_id = ?
+		) AND domain_normalized NOT IN (
+			SELECT domain_normalized FROM domain_batches WHERE batch_id != ?
+		)`, batchID, batchID)
+	if result.Error != nil {
+		return 0, result.Error
+	}
+	return result.RowsAffected, nil
+}
+
+// DeleteDomainBatches removes all domain_batch rows for a batch.
+func (d *Database) DeleteDomainBatches(batchID uint) error {
+	return d.gorm.Where("batch_id = ?", batchID).Delete(&DomainBatch{}).Error
+}
+
+// DeleteBatchRequests removes batch requests for a batch.
+func (d *Database) DeleteBatchRequests(batchID uint) error {
+	return d.gorm.Where("batch_id = ?", batchID).Delete(&BatchRequest{}).Error
+}
+
+// DeleteJobStates removes job state records for a batch.
+func (d *Database) DeleteJobStates(batchID uint) error {
+	return d.gorm.Where("batch_id = ?", batchID).Delete(&JobState{}).Error
+}
+
+// DeleteCSVBatch removes the batch record itself.
+func (d *Database) DeleteCSVBatch(batchID uint) error {
+	return d.gorm.Where("id = ?", batchID).Delete(&CSVBatch{}).Error
 }
 
 // UpdateBatchProcessingInfo refreshes processed counts and timestamp for a batch.

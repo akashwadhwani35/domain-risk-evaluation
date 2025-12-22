@@ -30,6 +30,17 @@ type EvaluateRequest struct {
 	Force   bool `json:"force"`
 }
 
+// SingleEvaluateRequest requests a one-off evaluation without a batch.
+type SingleEvaluateRequest struct {
+	Domain  string `json:"domain"`
+	Persist bool   `json:"persist"`
+}
+
+// SingleEvaluateResponse returns a single evaluation payload.
+type SingleEvaluateResponse struct {
+	Evaluation EvaluationDTO `json:"evaluation"`
+}
+
 // EvaluateResponse holds evaluation items and totals.
 type EvaluateResponse struct {
 	Items []EvaluationDTO `json:"items"`

@@ -71,9 +71,17 @@ type Server struct {
 	marksOnce       sync.Once
 	marksCache      []store.Mark
 	marksErr        error
+	tldCache        []string
+	tldCacheAt      time.Time
+	tldCacheLimit   int
+	tldCacheTotal   int64
+	tldCacheTruncated bool
+	tldCacheMu      sync.Mutex
 }
 
 const commercialMinPrice = 10000.0
+const staleJobThreshold = 5 * time.Minute
+const tldListLimit = 5000
 
 // NewServer constructs the API server.
 func NewServer(cfg Config) (*Server, error) {
@@ -174,6 +182,12 @@ func NewServer(cfg Config) (*Server, error) {
 		}
 	}
 
+	go func() {
+		if _, err := server.loadTrademarkMarks(); err != nil {
+			logrus.WithError(err).Warn("preload trademark marks")
+		}
+	}()
+
 	return server, nil
 }
 
@@ -200,9 +214,12 @@ func (s *Server) Router() (*gin.Engine, error) {
 		api.GET("/batches", s.handleListBatches)
 		api.GET("/batches/:id", s.handleGetBatch)
 		api.GET("/batches/:id/results", s.handleBatchResults)
+		api.DELETE("/batches/:id", s.handleDeleteBatch)
+		api.DELETE("/batches/:id/results", s.handleClearBatchResults)
 		api.GET("/requests/:id/status", s.handleRequestStatus)
 		api.POST("/upload", s.handleUpload)
 		api.POST("/evaluate", s.handleEvaluate)
+		api.POST("/evaluate/single", s.handleEvaluateSingle)
 		api.GET("/evaluate/status", s.handleEvaluateStatus)
 		api.DELETE("/evaluate/:jobID", s.handleCancelEvaluate)
 		api.GET("/evaluate/stream", s.handleEvaluateStream)
@@ -219,7 +236,14 @@ func (s *Server) handleHealth(c *gin.Context) {
 }
 
 func (s *Server) handleConfig(c *gin.Context) {
-	tlds, err := s.listTLDs()
+	limit := tldListLimit
+	if value := strings.TrimSpace(firstNonEmpty(c.Query("tld_limit"), c.Query("tldLimit"))); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+
+	tlds, total, truncated, err := s.listTLDs(limit)
 	if err != nil {
 		s.renderError(c, http.StatusInternalServerError, err)
 		return
@@ -234,6 +258,9 @@ func (s *Server) handleConfig(c *gin.Context) {
 		"seed_path":                s.seedPath,
 		"vice_terms_path":          s.vicePath,
 		"tlds":                     tlds,
+		"tld_total":                total,
+		"tld_limit":                limit,
+		"tld_truncated":            truncated,
 		"commercial_sales_records": commercialRecords,
 	})
 }
@@ -325,6 +352,55 @@ func (s *Server) handleGetBatch(c *gin.Context) {
 	c.JSON(http.StatusOK, dto)
 }
 
+func (s *Server) handleDeleteBatch(c *gin.Context) {
+	batchID, err := parseUintParam(c.Param("id"))
+	if err != nil {
+		s.renderError(c, http.StatusBadRequest, err)
+		return
+	}
+
+	s.jobMu.Lock()
+	active := s.activeJob
+	s.jobMu.Unlock()
+	if active != nil && active.batchID == batchID {
+		s.renderError(c, http.StatusConflict, errors.New("cannot delete batch while evaluation is running"))
+		return
+	}
+
+	if _, err := s.db.GetCSVBatch(batchID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			s.renderError(c, http.StatusNotFound, fmt.Errorf("batch %d not found", batchID))
+			return
+		}
+		s.renderError(c, http.StatusInternalServerError, err)
+		return
+	}
+
+	if err := s.db.WithTransaction(func(db *store.Database) error {
+		if _, err := db.DeleteEvaluationsForBatchSafe(batchID); err != nil {
+			return err
+		}
+		if err := db.DeleteDomainBatches(batchID); err != nil {
+			return err
+		}
+		if err := db.DeleteBatchRequests(batchID); err != nil {
+			return err
+		}
+		if err := db.DeleteJobStates(batchID); err != nil {
+			return err
+		}
+		if err := db.DeleteCSVBatch(batchID); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		s.renderError(c, http.StatusInternalServerError, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "deleted"})
+}
+
 func (s *Server) handleBatchResults(c *gin.Context) {
 	batchID, err := parseUintParam(c.Param("id"))
 	if err != nil {
@@ -340,6 +416,43 @@ func (s *Server) handleBatchResults(c *gin.Context) {
 		return
 	}
 	s.renderResults(c, batchID)
+}
+
+func (s *Server) handleClearBatchResults(c *gin.Context) {
+	batchID, err := parseUintParam(c.Param("id"))
+	if err != nil {
+		s.renderError(c, http.StatusBadRequest, err)
+		return
+	}
+
+	s.jobMu.Lock()
+	active := s.activeJob
+	s.jobMu.Unlock()
+	if active != nil && active.batchID == batchID {
+		s.renderError(c, http.StatusConflict, errors.New("cannot clear results while evaluation is running"))
+		return
+	}
+
+	if _, err := s.db.GetCSVBatch(batchID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			s.renderError(c, http.StatusNotFound, fmt.Errorf("batch %d not found", batchID))
+			return
+		}
+		s.renderError(c, http.StatusInternalServerError, err)
+		return
+	}
+
+	removed, err := s.db.DeleteEvaluationsForBatchSafe(batchID)
+	if err != nil {
+		s.renderError(c, http.StatusInternalServerError, err)
+		return
+	}
+
+	if err := s.db.UpdateBatchProcessingInfo(batchID); err != nil {
+		logrus.WithError(err).Warn("refresh batch processing info")
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "cleared", "deleted": removed})
 }
 
 func (s *Server) handleRequestStatus(c *gin.Context) {
@@ -510,6 +623,17 @@ func (s *Server) handleEvaluate(c *gin.Context) {
 		s.renderError(c, http.StatusConflict, errors.New("evaluation already running"))
 		return
 	}
+	if s.db != nil {
+		if running, err := s.db.LatestRunningBatchRequest(); err == nil && running != nil {
+			if !req.Force {
+				s.renderError(c, http.StatusConflict, errors.New("evaluation already running"))
+				return
+			}
+			if err := s.db.UpdateBatchRequest(running.ID, "failed"); err != nil {
+				logrus.WithError(err).Warn("failed to mark stale evaluation request")
+			}
+		}
+	}
 
 	job, err := s.startEvaluation(req, batch, int64(totalDomains))
 	if err != nil {
@@ -525,6 +649,72 @@ func (s *Server) handleEvaluate(c *gin.Context) {
 		StartedAt: job.startedAt,
 	}
 	c.JSON(http.StatusAccepted, response)
+}
+
+func (s *Server) handleEvaluateSingle(c *gin.Context) {
+	var req SingleEvaluateRequest
+	if c.Request.Body != nil {
+		if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+			s.renderError(c, http.StatusBadRequest, err)
+			return
+		}
+	}
+
+	domain := strings.TrimSpace(req.Domain)
+	if domain == "" {
+		s.renderError(c, http.StatusBadRequest, errors.New("domain is required"))
+		return
+	}
+
+	s.jobMu.Lock()
+	active := s.activeJob != nil
+	s.jobMu.Unlock()
+	if active {
+		s.renderError(c, http.StatusConflict, errors.New("evaluation already running"))
+		return
+	}
+
+	marks, err := s.loadTrademarkMarks()
+	if err != nil {
+		s.renderError(c, http.StatusInternalServerError, fmt.Errorf("load marks: %w", err))
+		return
+	}
+	trademarkScorer, err := scoring.NewTrademarkScorer(marks, s.seedPath)
+	if err != nil {
+		s.renderError(c, http.StatusInternalServerError, fmt.Errorf("trademark scorer: %w", err))
+		return
+	}
+
+	result := s.evaluateDomain(
+		c.Request.Context(),
+		"single",
+		0,
+		"single",
+		store.BatchDomain{Domain: domain, DomainNormalized: strings.ToLower(domain)},
+		trademarkScorer,
+		marks,
+		1,
+		make(map[string]usp.LookupResult),
+		nil,
+	)
+	if result.Err != nil {
+		s.renderError(c, http.StatusInternalServerError, result.Err)
+		return
+	}
+
+	eval := result.Evaluation
+	if eval.CreatedAt.IsZero() {
+		eval.CreatedAt = time.Now().UTC()
+	}
+
+	if req.Persist {
+		if err := s.db.SaveEvaluation(&eval); err != nil {
+			s.renderError(c, http.StatusInternalServerError, fmt.Errorf("save evaluation: %w", err))
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, SingleEvaluateResponse{Evaluation: FromModel(eval)})
 }
 
 func (s *Server) handleCancelEvaluate(c *gin.Context) {
@@ -547,7 +737,7 @@ func (s *Server) handleCancelEvaluate(c *gin.Context) {
 
 	s.activeJob.cancel()
 	logrus.WithField("job", jobID).Info("evaluation cancellation requested")
-	s.evalNotifier.Broadcast(EvaluationEvent{
+	s.broadcastJobEvent(s.activeJob, EvaluationEvent{
 		Type:      "progress",
 		JobID:     s.activeJob.id,
 		BatchID:   s.activeJob.batchID,
@@ -568,6 +758,35 @@ func (s *Server) handleEvaluateStatus(c *gin.Context) {
 
 	resp := EvaluateStatusResponse{
 		Running: job != nil,
+	}
+
+	if job == nil && s.db != nil {
+		if runningState, err := s.db.GetLatestRunningJobState(); err == nil && runningState != nil {
+			if time.Since(runningState.UpdatedAt) > staleJobThreshold {
+				logrus.WithField("job", runningState.JobID).Warn("stale evaluation state detected")
+				_ = s.db.UpsertJobState(&store.JobState{
+					JobID:     runningState.JobID,
+					BatchID:   runningState.BatchID,
+					RequestID: runningState.RequestID,
+					Status:    "error",
+					Message:   "stale evaluation state detected",
+					Processed: runningState.Processed,
+					Total:     runningState.Total,
+				})
+				if runningState.RequestID != 0 {
+					_ = s.db.UpdateBatchRequest(runningState.RequestID, "failed")
+				}
+			} else {
+				resp.Running = true
+				resp.JobID = runningState.JobID
+				resp.BatchID = runningState.BatchID
+				resp.RequestID = runningState.RequestID
+				resp.Total = runningState.Total
+				resp.Processed = runningState.Processed
+				resp.State = runningState.Status
+				resp.Message = runningState.Message
+			}
+		}
 	}
 
 	if job != nil {
@@ -592,6 +811,26 @@ func (s *Server) handleEvaluateStatus(c *gin.Context) {
 		if status.Evaluation != nil {
 			copyEval := *status.Evaluation
 			resp.LastEvaluation = &copyEval
+		}
+	} else if s.db != nil && resp.State == "" {
+		if lastState, err := s.db.GetLatestJobState(); err == nil && lastState != nil {
+			resp.State = lastState.Status
+			resp.Message = lastState.Message
+			if lastState.Processed != 0 {
+				resp.Processed = lastState.Processed
+			}
+			if lastState.Total != 0 {
+				resp.Total = lastState.Total
+			}
+			if lastState.BatchID != 0 {
+				resp.BatchID = lastState.BatchID
+			}
+			if lastState.JobID != "" {
+				resp.JobID = lastState.JobID
+			}
+			if lastState.RequestID != 0 {
+				resp.RequestID = lastState.RequestID
+			}
 		}
 	}
 
@@ -816,22 +1055,42 @@ func (s *Server) resolveTrademark(profile match.DomainProfile, hasLookup bool, l
 			}
 			if scoring.IsPopularToken(exact.Mark) {
 				return scoring.TrademarkResult{
-					Score:            2,
+					Score:            3,
 					Type:             "popular",
 					MatchedTrademark: exact.Mark,
-					Confidence:       0.75,
+					Confidence:       0.8,
+				}, uniqueStrings(closeMatches)
+			}
+			if scoring.IsCommonDictionaryWord(exact.Mark) {
+				return scoring.TrademarkResult{
+					Score:            2,
+					Type:             "generic",
+					MatchedTrademark: exact.Mark,
+					Confidence:       0.6,
 				}, uniqueStrings(closeMatches)
 			}
 			return scoring.TrademarkResult{
-				Score:            0,
+				Score:            2,
 				Type:             "generic",
 				MatchedTrademark: exact.Mark,
-				Confidence:       0.4,
+				Confidence:       0.5,
 			}, uniqueStrings(closeMatches)
 		}
 		for _, sim := range lookup.Similar {
 			if sim.Mark != "" {
 				closeMatches = append(closeMatches, sim.Mark)
+				isFanciful := false
+				if s.fancifulDecider != nil {
+					isFanciful = s.fancifulDecider.Decide(sim.Mark, sim.Classes, sim.Owner)
+				}
+				if isFanciful {
+					return scoring.TrademarkResult{
+						Score:            4,
+						Type:             "fanciful_variation",
+						MatchedTrademark: sim.Mark,
+						Confidence:       0.8,
+					}, uniqueStrings(closeMatches)
+				}
 			}
 		}
 	}
@@ -1088,10 +1347,24 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func (s *Server) listTLDs() ([]string, error) {
-	rows, _, err := s.db.ListDomains(0, 0)
+func (s *Server) listTLDs(limit int) ([]string, int64, bool, error) {
+	if limit <= 0 {
+		limit = tldListLimit
+	}
+
+	s.tldCacheMu.Lock()
+	if len(s.tldCache) > 0 && time.Since(s.tldCacheAt) < 5*time.Minute && s.tldCacheLimit == limit {
+		tlds := append([]string{}, s.tldCache...)
+		total := s.tldCacheTotal
+		truncated := s.tldCacheTruncated
+		s.tldCacheMu.Unlock()
+		return tlds, total, truncated, nil
+	}
+	s.tldCacheMu.Unlock()
+
+	rows, total, err := s.db.ListDomains(0, limit)
 	if err != nil {
-		return nil, err
+		return nil, 0, false, err
 	}
 	set := make(map[string]struct{}, len(rows))
 	for _, row := range rows {
@@ -1111,5 +1384,15 @@ func (s *Server) listTLDs() ([]string, error) {
 		tlds = append(tlds, tld)
 	}
 	sort.Strings(tlds)
-	return tlds, nil
+	truncated := total > int64(limit)
+
+	s.tldCacheMu.Lock()
+	s.tldCache = append([]string{}, tlds...)
+	s.tldCacheAt = time.Now()
+	s.tldCacheLimit = limit
+	s.tldCacheTotal = total
+	s.tldCacheTruncated = truncated
+	s.tldCacheMu.Unlock()
+
+	return tlds, total, truncated, nil
 }
