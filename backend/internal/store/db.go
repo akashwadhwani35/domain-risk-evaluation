@@ -709,12 +709,12 @@ type TimeSeriesPoint struct {
 
 // GetRecommendationCounts returns counts grouped by overall_recommendation.
 // If batchID > 0, counts are scoped to that batch.
+// Maps both old (BLOCK/REVIEW/ALLOW) and new (YES_RISK/POTENTIAL_RISK/NO_RISK) values.
 func (d *Database) GetRecommendationCounts(batchID uint) (map[string]int64, error) {
 	result := map[string]int64{
-		"BLOCK":              0,
-		"REVIEW":             0,
-		"ALLOW_WITH_CAUTION": 0,
-		"ALLOW":              0,
+		"YES_RISK":       0,
+		"POTENTIAL_RISK": 0,
+		"NO_RISK":        0,
 	}
 
 	query := d.gorm.Model(&Evaluation{}).
@@ -731,8 +731,17 @@ func (d *Database) GetRecommendationCounts(batchID uint) (map[string]int64, erro
 	}
 
 	for _, row := range rows {
-		if row.Recommendation != "" {
-			result[row.Recommendation] = row.Count
+		if row.Recommendation == "" {
+			continue
+		}
+		// Map old values to new 3-tier system
+		switch row.Recommendation {
+		case "YES_RISK", "BLOCK":
+			result["YES_RISK"] += row.Count
+		case "POTENTIAL_RISK", "REVIEW", "ALLOW_WITH_CAUTION":
+			result["POTENTIAL_RISK"] += row.Count
+		case "NO_RISK", "ALLOW":
+			result["NO_RISK"] += row.Count
 		}
 	}
 	return result, nil
