@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
 import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
 import type { FeedbackStatsResponse, OverrideDTO } from '../types';
 import { fetchFeedbackStats, fetchOverrides } from '../lib/api';
+
+dayjs.extend(relativeTime);
 
 interface AILearningDashboardProps {
   batchId?: number;
