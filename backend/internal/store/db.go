@@ -1227,7 +1227,7 @@ func (d *Database) GetFeedbackStats(batchID uint) (*FeedbackStats, error) {
 	var userStats []struct {
 		OverriddenBy   string
 		TotalOverrides int64
-		LastOverrideAt *time.Time
+		LastOverrideAt string // SQLite returns datetime as string
 	}
 	userQuery := d.gorm.Model(&EvaluationOverride{}).
 		Select("overridden_by, COUNT(*) as total_overrides, MAX(created_at) as last_override_at").
@@ -1259,11 +1259,21 @@ func (d *Database) GetFeedbackStats(batchID uint) (*FeedbackStats, error) {
 			change = mostCommon.OriginalRecommendation + " → " + mostCommon.OverrideRecommendation
 		}
 
+		// Parse the datetime string from SQLite
+		var lastAt *time.Time
+		if u.LastOverrideAt != "" {
+			if parsed, err := time.Parse("2006-01-02 15:04:05", u.LastOverrideAt); err == nil {
+				lastAt = &parsed
+			} else if parsed, err := time.Parse(time.RFC3339, u.LastOverrideAt); err == nil {
+				lastAt = &parsed
+			}
+		}
+
 		stats.UserStats = append(stats.UserStats, UserOverrideStat{
 			User:             u.OverriddenBy,
 			TotalOverrides:   int(u.TotalOverrides),
 			MostCommonChange: change,
-			LastOverrideAt:   u.LastOverrideAt,
+			LastOverrideAt:   lastAt,
 		})
 	}
 
