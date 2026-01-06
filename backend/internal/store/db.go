@@ -718,7 +718,7 @@ func (d *Database) GetRecommendationCounts(batchID uint) (map[string]int64, erro
 	}
 
 	query := d.gorm.Model(&Evaluation{}).
-		Select("overall_recommendation, COUNT(*) as count").
+		Select("overall_recommendation as recommendation, COUNT(*) as count").
 		Group("overall_recommendation")
 
 	if batchID > 0 {

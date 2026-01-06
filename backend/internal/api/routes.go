@@ -180,7 +180,7 @@ func NewServer(cfg Config) (*Server, error) {
 	if embeddingClient != nil {
 		server.feedbackRetriever = ai.NewFeedbackRetriever(embeddingClient, db, ai.FeedbackRetrieverConfig{
 			TopK:          3,
-			MinSimilarity: 0.75,
+			MinSimilarity: 0.60, // Lowered from 0.75 for better feedback matching
 		})
 		logrus.Info("feedback retriever enabled for AI learning")
 	}
