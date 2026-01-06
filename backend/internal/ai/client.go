@@ -255,11 +255,13 @@ YES_RISK - You recognize it as a brand (any industry):
 
 NO_RISK - Generic/descriptive terms you DON'T recognize as brands:
 - Technical: healthcareapi, documentai, bigquery, cloudrun
-- Common words: frontier, pioneer, deep-river, humpty
+- Common words: frontier, pioneer, deep-river, humpty, horizon, quantum, spectrum, summit, legacy, pulse
 - Generic phrases: oldDutch, ballreich, mikesells
+- Dictionary words with trademark registrations are still NO_RISK (many companies register common words)
+- 2-3 letter abbreviations: mp, kk, cc, sp (unless famous like LG, HP, GE)
 
 POTENTIAL_RISK - ONLY for genuine ambiguity (very rare):
-- "apple" alone, "shell" alone
+- "apple" alone, "shell" alone (famous brand AND common word)
 
 YOUR KNOWLEDGE > OUR SIGNALS. If you know it's a brand, say YES_RISK confidently.
 

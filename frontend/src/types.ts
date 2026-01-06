@@ -142,10 +142,9 @@ export interface StatsResponse {
 }
 
 export interface RecommendationStats {
-  block: number;
-  review: number;
-  allow_with_caution: number;
-  allow: number;
+  yes_risk: number;
+  potential_risk: number;
+  no_risk: number;
 }
 
 export interface ScoreBucket {
@@ -159,10 +158,9 @@ export interface BatchSummary {
   owner: string;
   total_domains: number;
   processed_domains: number;
-  block_count: number;
-  review_count: number;
-  caution_count: number;
-  allow_count: number;
+  yes_risk_count: number;
+  potential_count: number;
+  no_risk_count: number;
   created_at: string;
   last_evaluated_at?: string | null;
 }

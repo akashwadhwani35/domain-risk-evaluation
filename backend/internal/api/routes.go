@@ -1396,12 +1396,11 @@ type StatsResponse struct {
 	EvaluationsOverTime   []store.TimeSeriesPoint  `json:"evaluations_over_time"`
 }
 
-// RecommendationStats holds counts per recommendation category.
+// RecommendationStats holds counts per recommendation category (3-tier system).
 type RecommendationStats struct {
-	Block            int64 `json:"block"`
-	Review           int64 `json:"review"`
-	AllowWithCaution int64 `json:"allow_with_caution"`
-	Allow            int64 `json:"allow"`
+	YesRisk       int64 `json:"yes_risk"`
+	PotentialRisk int64 `json:"potential_risk"`
+	NoRisk        int64 `json:"no_risk"`
 }
 
 // ScoreBucketDTO holds a score and its count for API responses.
@@ -1518,10 +1517,9 @@ func (s *Server) handleStats(c *gin.Context) {
 		TotalEvaluations: totalEvaluations,
 		TotalBatches:     totalBatches,
 		RecommendationCounts: RecommendationStats{
-			Block:            recCounts["BLOCK"],
-			Review:           recCounts["REVIEW"],
-			AllowWithCaution: recCounts["ALLOW_WITH_CAUTION"],
-			Allow:            recCounts["ALLOW"],
+			YesRisk:       recCounts["YES_RISK"],
+			PotentialRisk: recCounts["POTENTIAL_RISK"],
+			NoRisk:        recCounts["NO_RISK"],
 		},
 		TrademarkDistribution: trademarkDistDTO,
 		ViceDistribution:      viceDistDTO,

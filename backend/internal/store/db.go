@@ -39,6 +39,10 @@ func Open(path string, silent bool) (*Database, error) {
 	if err := db.Exec("PRAGMA synchronous=NORMAL").Error; err != nil {
 		logrus.WithError(err).Warn("set synchronous pragma")
 	}
+	// Wait up to 60 seconds for locks to clear instead of immediately failing
+	if err := db.Exec("PRAGMA busy_timeout=60000").Error; err != nil {
+		logrus.WithError(err).Warn("set busy_timeout pragma")
+	}
 	if err := applyIndexes(db); err != nil {
 		return nil, fmt.Errorf("apply indexes: %w", err)
 	}
@@ -690,10 +694,9 @@ type BatchSummary struct {
 	Owner            string     `json:"owner"`
 	TotalDomains     int        `json:"total_domains"`
 	ProcessedDomains int        `json:"processed_domains"`
-	BlockCount       int64      `json:"block_count"`
-	ReviewCount      int64      `json:"review_count"`
-	CautionCount     int64      `json:"caution_count"`
-	AllowCount       int64      `json:"allow_count"`
+	YesRiskCount     int64      `json:"yes_risk_count"`
+	PotentialCount   int64      `json:"potential_count"`
+	NoRiskCount      int64      `json:"no_risk_count"`
 	CreatedAt        time.Time  `json:"created_at"`
 	LastEvaluatedAt  *time.Time `json:"last_evaluated_at"`
 }
@@ -896,10 +899,9 @@ func (d *Database) GetBatchSummaries(limit int) ([]BatchSummary, error) {
 		// Get recommendation counts for this batch
 		counts, err := d.GetRecommendationCounts(b.ID)
 		if err == nil {
-			summary.BlockCount = counts["BLOCK"]
-			summary.ReviewCount = counts["REVIEW"]
-			summary.CautionCount = counts["ALLOW_WITH_CAUTION"]
-			summary.AllowCount = counts["ALLOW"]
+			summary.YesRiskCount = counts["YES_RISK"]
+			summary.PotentialCount = counts["POTENTIAL_RISK"]
+			summary.NoRiskCount = counts["NO_RISK"]
 		}
 
 		summaries = append(summaries, summary)

@@ -18,6 +18,7 @@ import ScoreBadge from './ScoreBadge';
 interface DashboardProps {
   selectedBatch: BatchDTO | null;
   onSelectBatch: (batch: BatchDTO) => void;
+  onSwitchToResults?: () => void;
 }
 
 // Color palette for 3-tier system
@@ -141,12 +142,14 @@ interface BatchOverviewTableProps {
   batches: BatchSummary[];
   onSelectBatch: (batch: BatchDTO) => void;
   selectedBatchId?: number;
+  onSwitchToResults?: () => void;
 }
 
 function BatchOverviewTable({
   batches,
   onSelectBatch,
-  selectedBatchId
+  selectedBatchId,
+  onSwitchToResults
 }: BatchOverviewTableProps) {
   if (batches.length === 0) {
     return <div className="text-sm text-[var(--muted)]">No batches available</div>;
@@ -185,15 +188,15 @@ function BatchOverviewTable({
                 : 0;
             const isSelected = batch.id === selectedBatchId;
 
-            // Map old counts to new 3-tier counts
-            const yesRisk = batch.block_count ?? 0;
-            const potentialRisk = (batch.review_count ?? 0) + (batch.caution_count ?? 0);
-            const noRisk = batch.allow_count ?? 0;
+            // Use 3-tier counts directly
+            const yesRisk = batch.yes_risk_count ?? 0;
+            const potentialRisk = batch.potential_count ?? 0;
+            const noRisk = batch.no_risk_count ?? 0;
 
             return (
               <tr
                 key={batch.id}
-                onClick={() =>
+                onClick={() => {
                   onSelectBatch({
                     id: batch.id,
                     name: batch.name,
@@ -206,8 +209,9 @@ function BatchOverviewTable({
                     processed_domains: batch.processed_domains,
                     created_at: batch.created_at,
                     last_evaluated_at: batch.last_evaluated_at
-                  })
-                }
+                  });
+                  onSwitchToResults?.();
+                }}
                 className={clsx(
                   'border-b border-[var(--line)] cursor-pointer transition-colors hover:bg-[var(--surface-2)]',
                   isSelected && 'bg-[var(--accent-soft)]'
@@ -341,7 +345,7 @@ function DashboardError({
   );
 }
 
-export default function Dashboard({ selectedBatch, onSelectBatch }: DashboardProps) {
+export default function Dashboard({ selectedBatch, onSelectBatch, onSwitchToResults }: DashboardProps) {
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -375,11 +379,11 @@ export default function Dashboard({ selectedBatch, onSelectBatch }: DashboardPro
     return null;
   }
 
-  // Map old recommendation counts to new 3-tier system
+  // Use 3-tier recommendation counts directly
   const riskCounts = {
-    yes_risk: stats.recommendation_counts.block ?? 0,
-    potential_risk: (stats.recommendation_counts.review ?? 0) + (stats.recommendation_counts.allow_with_caution ?? 0),
-    no_risk: stats.recommendation_counts.allow ?? 0
+    yes_risk: stats.recommendation_counts.yes_risk ?? 0,
+    potential_risk: stats.recommendation_counts.potential_risk ?? 0,
+    no_risk: stats.recommendation_counts.no_risk ?? 0
   };
 
   return (
@@ -437,6 +441,7 @@ export default function Dashboard({ selectedBatch, onSelectBatch }: DashboardPro
             batches={stats.recent_batches}
             onSelectBatch={onSelectBatch}
             selectedBatchId={selectedBatch?.id}
+            onSwitchToResults={onSwitchToResults}
           />
         </section>
       )}

@@ -997,6 +997,7 @@ export default function App() {
                 <Dashboard
                   selectedBatch={selectedBatch}
                   onSelectBatch={handleSelectBatch}
+                  onSwitchToResults={() => setViewMode('results')}
                 />
               ) : viewMode === 'evaluations' ? (
                 <EvaluationsQueue

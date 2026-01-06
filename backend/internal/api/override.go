@@ -32,12 +32,19 @@ func (s *Server) handleCreateOverride(c *gin.Context) {
 		return
 	}
 
-	// Validate recommendation
+	// Validate and normalize recommendation
 	req.OverrideRecommendation = strings.ToUpper(strings.TrimSpace(req.OverrideRecommendation))
 	switch req.OverrideRecommendation {
-	case "BLOCK", "REVIEW", "ALLOW_WITH_CAUTION", "ALLOW":
+	case "YES_RISK", "NO_RISK", "POTENTIAL_RISK":
+		// New 3-tier values - accepted as-is
+	case "BLOCK":
+		req.OverrideRecommendation = "YES_RISK"
+	case "REVIEW", "ALLOW_WITH_CAUTION":
+		req.OverrideRecommendation = "POTENTIAL_RISK"
+	case "ALLOW":
+		req.OverrideRecommendation = "NO_RISK"
 	default:
-		s.renderError(c, http.StatusBadRequest, errors.New("invalid recommendation: must be BLOCK, REVIEW, ALLOW_WITH_CAUTION, or ALLOW"))
+		s.renderError(c, http.StatusBadRequest, errors.New("invalid recommendation: must be YES_RISK, NO_RISK, or POTENTIAL_RISK"))
 		return
 	}
 
