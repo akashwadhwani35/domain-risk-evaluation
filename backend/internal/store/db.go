@@ -30,7 +30,7 @@ func Open(path string, silent bool) (*Database, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
-	if err := db.AutoMigrate(&Mark{}, &Domain{}, &Evaluation{}, &CommercialSale{}, &PopularMark{}, &CSVBatch{}, &BatchRequest{}, &DomainBatch{}, &JobState{}); err != nil {
+	if err := db.AutoMigrate(&Mark{}, &Domain{}, &Evaluation{}, &CommercialSale{}, &PopularMark{}, &CSVBatch{}, &BatchRequest{}, &DomainBatch{}, &JobState{}, &EvaluationOverride{}, &FeedbackEmbedding{}); err != nil {
 		return nil, fmt.Errorf("auto migrate: %w", err)
 	}
 	if err := db.Exec("PRAGMA journal_mode=WAL").Error; err != nil {
@@ -362,6 +362,12 @@ func applyIndexes(db *gorm.DB) error {
 		"CREATE INDEX IF NOT EXISTS idx_popular_marks_total ON popular_marks(total DESC)",
 		"CREATE INDEX IF NOT EXISTS idx_job_states_status_updated ON job_states(status, updated_at)",
 		"CREATE INDEX IF NOT EXISTS idx_job_states_batch ON job_states(batch_id)",
+		"CREATE INDEX IF NOT EXISTS idx_evaluation_overrides_evaluation_id ON evaluation_overrides(evaluation_id)",
+		"CREATE INDEX IF NOT EXISTS idx_evaluation_overrides_domain ON evaluation_overrides(domain_normalized)",
+		"CREATE INDEX IF NOT EXISTS idx_evaluation_overrides_user ON evaluation_overrides(overridden_by)",
+		"CREATE INDEX IF NOT EXISTS idx_feedback_embeddings_domain ON feedback_embeddings(domain_normalized)",
+		"CREATE INDEX IF NOT EXISTS idx_evaluations_manual_override ON evaluations(manual_override)",
+		"CREATE INDEX IF NOT EXISTS idx_evaluations_last_override ON evaluations(last_override_at)",
 	}
 	for _, stmt := range stmts {
 		if err := db.Exec(stmt).Error; err != nil {
@@ -663,4 +669,704 @@ func (d *Database) GetBatchRequest(requestID uint) (*BatchRequest, error) {
 		return nil, err
 	}
 	return &request, nil
+}
+
+// RecommendationCount holds count per recommendation type.
+type RecommendationCount struct {
+	Recommendation string
+	Count          int64
+}
+
+// ScoreBucket holds a score and its count.
+type ScoreBucket struct {
+	Score int
+	Count int64
+}
+
+// BatchSummary holds aggregated statistics for a batch.
+type BatchSummary struct {
+	ID               uint       `json:"id"`
+	Name             string     `json:"name"`
+	Owner            string     `json:"owner"`
+	TotalDomains     int        `json:"total_domains"`
+	ProcessedDomains int        `json:"processed_domains"`
+	BlockCount       int64      `json:"block_count"`
+	ReviewCount      int64      `json:"review_count"`
+	CautionCount     int64      `json:"caution_count"`
+	AllowCount       int64      `json:"allow_count"`
+	CreatedAt        time.Time  `json:"created_at"`
+	LastEvaluatedAt  *time.Time `json:"last_evaluated_at"`
+}
+
+// TimeSeriesPoint represents a date and value for time-series data.
+type TimeSeriesPoint struct {
+	Date  string  `json:"date"`
+	Value float64 `json:"value"`
+}
+
+// GetRecommendationCounts returns counts grouped by overall_recommendation.
+// If batchID > 0, counts are scoped to that batch.
+func (d *Database) GetRecommendationCounts(batchID uint) (map[string]int64, error) {
+	result := map[string]int64{
+		"BLOCK":              0,
+		"REVIEW":             0,
+		"ALLOW_WITH_CAUTION": 0,
+		"ALLOW":              0,
+	}
+
+	query := d.gorm.Model(&Evaluation{}).
+		Select("overall_recommendation, COUNT(*) as count").
+		Group("overall_recommendation")
+
+	if batchID > 0 {
+		query = query.Where("domain_normalized IN (SELECT domain_normalized FROM domain_batches WHERE batch_id = ?)", batchID)
+	}
+
+	var rows []RecommendationCount
+	if err := query.Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	for _, row := range rows {
+		if row.Recommendation != "" {
+			result[row.Recommendation] = row.Count
+		}
+	}
+	return result, nil
+}
+
+// GetTrademarkScoreDistribution returns trademark score histogram (0-5).
+func (d *Database) GetTrademarkScoreDistribution(batchID uint) ([]ScoreBucket, error) {
+	query := d.gorm.Model(&Evaluation{}).
+		Select("trademark_score as score, COUNT(*) as count").
+		Group("trademark_score").
+		Order("trademark_score ASC")
+
+	if batchID > 0 {
+		query = query.Where("domain_normalized IN (SELECT domain_normalized FROM domain_batches WHERE batch_id = ?)", batchID)
+	}
+
+	var rows []ScoreBucket
+	if err := query.Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// GetViceScoreDistribution returns vice score histogram (0-5).
+func (d *Database) GetViceScoreDistribution(batchID uint) ([]ScoreBucket, error) {
+	query := d.gorm.Model(&Evaluation{}).
+		Select("vice_score as score, COUNT(*) as count").
+		Group("vice_score").
+		Order("vice_score ASC")
+
+	if batchID > 0 {
+		query = query.Where("domain_normalized IN (SELECT domain_normalized FROM domain_batches WHERE batch_id = ?)", batchID)
+	}
+
+	var rows []ScoreBucket
+	if err := query.Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// GetTopRisksByTrademark returns top N evaluations by trademark score.
+func (d *Database) GetTopRisksByTrademark(batchID uint, limit int) ([]Evaluation, error) {
+	query := d.gorm.Model(&Evaluation{}).
+		Where("trademark_score > 0").
+		Order("trademark_score DESC, vice_score DESC, id DESC")
+
+	if batchID > 0 {
+		query = query.Where("domain_normalized IN (SELECT domain_normalized FROM domain_batches WHERE batch_id = ?)", batchID)
+	}
+
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+
+	var rows []Evaluation
+	if err := query.Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// GetTopRisksByVice returns top N evaluations by vice score.
+func (d *Database) GetTopRisksByVice(batchID uint, limit int) ([]Evaluation, error) {
+	query := d.gorm.Model(&Evaluation{}).
+		Where("vice_score > 0").
+		Order("vice_score DESC, trademark_score DESC, id DESC")
+
+	if batchID > 0 {
+		query = query.Where("domain_normalized IN (SELECT domain_normalized FROM domain_batches WHERE batch_id = ?)", batchID)
+	}
+
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+
+	var rows []Evaluation
+	if err := query.Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// GetEvaluationsOverTime returns daily evaluation counts for the last N days.
+func (d *Database) GetEvaluationsOverTime(batchID uint, days int) ([]TimeSeriesPoint, error) {
+	if days <= 0 {
+		days = 30
+	}
+
+	query := d.gorm.Model(&Evaluation{}).
+		Select("DATE(created_at) as date, COUNT(*) as value").
+		Where("created_at >= DATE('now', ?)", fmt.Sprintf("-%d days", days)).
+		Group("DATE(created_at)").
+		Order("date ASC")
+
+	if batchID > 0 {
+		query = query.Where("domain_normalized IN (SELECT domain_normalized FROM domain_batches WHERE batch_id = ?)", batchID)
+	}
+
+	var rows []TimeSeriesPoint
+	if err := query.Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// GetAverageProcessingTime returns average processing time in milliseconds.
+func (d *Database) GetAverageProcessingTime(batchID uint) (float64, error) {
+	query := d.gorm.Model(&Evaluation{}).
+		Select("AVG(processing_time_ms)")
+
+	if batchID > 0 {
+		query = query.Where("domain_normalized IN (SELECT domain_normalized FROM domain_batches WHERE batch_id = ?)", batchID)
+	}
+
+	var avg *float64
+	if err := query.Scan(&avg).Error; err != nil {
+		return 0, err
+	}
+	if avg == nil {
+		return 0, nil
+	}
+	return *avg, nil
+}
+
+// CountEvaluations returns total evaluation count, optionally filtered by batch.
+func (d *Database) CountEvaluations(batchID uint) (int64, error) {
+	query := d.gorm.Model(&Evaluation{})
+
+	if batchID > 0 {
+		query = query.Where("domain_normalized IN (SELECT domain_normalized FROM domain_batches WHERE batch_id = ?)", batchID)
+	}
+
+	var count int64
+	if err := query.Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+// GetBatchSummaries returns aggregated statistics per batch.
+func (d *Database) GetBatchSummaries(limit int) ([]BatchSummary, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+
+	var batches []CSVBatch
+	if err := d.gorm.Order("created_at DESC").Limit(limit).Find(&batches).Error; err != nil {
+		return nil, err
+	}
+
+	summaries := make([]BatchSummary, 0, len(batches))
+	for _, b := range batches {
+		summary := BatchSummary{
+			ID:               b.ID,
+			Name:             b.Name,
+			Owner:            b.Owner,
+			TotalDomains:     b.UniqueDomains,
+			ProcessedDomains: b.ProcessedDomains,
+			CreatedAt:        b.CreatedAt,
+			LastEvaluatedAt:  b.LastEvaluatedAt,
+		}
+
+		// Get recommendation counts for this batch
+		counts, err := d.GetRecommendationCounts(b.ID)
+		if err == nil {
+			summary.BlockCount = counts["BLOCK"]
+			summary.ReviewCount = counts["REVIEW"]
+			summary.CautionCount = counts["ALLOW_WITH_CAUTION"]
+			summary.AllowCount = counts["ALLOW"]
+		}
+
+		summaries = append(summaries, summary)
+	}
+
+	return summaries, nil
+}
+
+// ========================
+// Override and Feedback Methods
+// ========================
+
+// GetEvaluationByID retrieves an evaluation by its ID.
+func (d *Database) GetEvaluationByID(evaluationID uint) (*Evaluation, error) {
+	var eval Evaluation
+	if err := d.gorm.First(&eval, evaluationID).Error; err != nil {
+		return nil, err
+	}
+	return &eval, nil
+}
+
+// GetEvaluationByDomain retrieves an evaluation by normalized domain.
+func (d *Database) GetEvaluationByDomain(domainNormalized string) (*Evaluation, error) {
+	var eval Evaluation
+	if err := d.gorm.Where("domain_normalized = ?", domainNormalized).First(&eval).Error; err != nil {
+		return nil, err
+	}
+	return &eval, nil
+}
+
+// CreateOverride creates a new evaluation override record.
+func (d *Database) CreateOverride(override *EvaluationOverride) error {
+	if override == nil {
+		return errors.New("override is nil")
+	}
+	return d.gorm.Create(override).Error
+}
+
+// GetOverridesByEvaluation returns all overrides for a specific evaluation.
+func (d *Database) GetOverridesByEvaluation(evaluationID uint) ([]EvaluationOverride, error) {
+	var overrides []EvaluationOverride
+	if err := d.gorm.Where("evaluation_id = ?", evaluationID).
+		Order("created_at DESC").
+		Find(&overrides).Error; err != nil {
+		return nil, err
+	}
+	return overrides, nil
+}
+
+// GetOverrideByID retrieves an override by ID.
+func (d *Database) GetOverrideByID(overrideID uint) (*EvaluationOverride, error) {
+	var override EvaluationOverride
+	if err := d.gorm.First(&override, overrideID).Error; err != nil {
+		return nil, err
+	}
+	return &override, nil
+}
+
+// ListAllOverrides returns paginated override records, optionally filtered by user.
+func (d *Database) ListAllOverrides(offset, limit int, user string) ([]EvaluationOverride, int64, error) {
+	var total int64
+	baseQuery := d.gorm.Model(&EvaluationOverride{})
+	if user != "" {
+		baseQuery = baseQuery.Where("overridden_by = ?", user)
+	}
+	if err := baseQuery.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	query := baseQuery.Order("created_at DESC")
+	if limit > 0 {
+		query = query.Offset(offset).Limit(limit)
+	}
+	var overrides []EvaluationOverride
+	if err := query.Find(&overrides).Error; err != nil {
+		return nil, 0, err
+	}
+	return overrides, total, nil
+}
+
+// UpdateOverrideFeedbackStatus marks an override as having feedback applied.
+func (d *Database) UpdateOverrideFeedbackStatus(overrideID uint, embeddingID uint) error {
+	return d.gorm.Model(&EvaluationOverride{}).
+		Where("id = ?", overrideID).
+		Updates(map[string]any{
+			"feedback_applied": true,
+			"embedding_id":     embeddingID,
+		}).Error
+}
+
+// ApplyOverrideToEvaluation updates the evaluation with override values.
+func (d *Database) ApplyOverrideToEvaluation(evaluationID uint, override *EvaluationOverride) error {
+	if override == nil {
+		return errors.New("override is nil")
+	}
+	now := time.Now()
+	updates := map[string]any{
+		"overall_recommendation": override.OverrideRecommendation,
+		"manual_override":        true,
+		"last_override_at":       &now,
+	}
+	if override.OverrideTrademarkScore != nil {
+		updates["trademark_score"] = *override.OverrideTrademarkScore
+	}
+	if override.OverrideViceScore != nil {
+		updates["vice_score"] = *override.OverrideViceScore
+	}
+	if override.OverrideExplanation != "" {
+		updates["explanation"] = override.OverrideExplanation
+	}
+	// Increment override count
+	if err := d.gorm.Model(&Evaluation{}).Where("id = ?", evaluationID).
+		UpdateColumn("override_count", gorm.Expr("COALESCE(override_count, 0) + 1")).Error; err != nil {
+		return err
+	}
+	return d.gorm.Model(&Evaluation{}).Where("id = ?", evaluationID).Updates(updates).Error
+}
+
+// CreateFeedbackEmbedding stores a new feedback embedding.
+func (d *Database) CreateFeedbackEmbedding(embedding *FeedbackEmbedding) error {
+	if embedding == nil {
+		return errors.New("embedding is nil")
+	}
+	return d.gorm.Create(embedding).Error
+}
+
+// GetFeedbackEmbedding retrieves a feedback embedding by ID.
+func (d *Database) GetFeedbackEmbedding(id uint) (*FeedbackEmbedding, error) {
+	var embedding FeedbackEmbedding
+	if err := d.gorm.First(&embedding, id).Error; err != nil {
+		return nil, err
+	}
+	return &embedding, nil
+}
+
+// GetAllEmbeddings returns all feedback embeddings for similarity search.
+func (d *Database) GetAllEmbeddings() ([]FeedbackEmbedding, error) {
+	var embeddings []FeedbackEmbedding
+	if err := d.gorm.Find(&embeddings).Error; err != nil {
+		return nil, err
+	}
+	return embeddings, nil
+}
+
+// ListFeedbackEmbeddings returns paginated feedback embeddings.
+func (d *Database) ListFeedbackEmbeddings(offset, limit int) ([]FeedbackEmbedding, int64, error) {
+	var total int64
+	if err := d.gorm.Model(&FeedbackEmbedding{}).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	query := d.gorm.Model(&FeedbackEmbedding{}).Order("created_at DESC")
+	if limit > 0 {
+		query = query.Offset(offset).Limit(limit)
+	}
+	var embeddings []FeedbackEmbedding
+	if err := query.Find(&embeddings).Error; err != nil {
+		return nil, 0, err
+	}
+	return embeddings, total, nil
+}
+
+// MarkOverrideProcessed marks an override as having a feedback embedding created.
+func (d *Database) MarkOverrideProcessed(overrideID, embeddingID uint) error {
+	return d.gorm.Model(&EvaluationOverride{}).
+		Where("id = ?", overrideID).
+		Updates(map[string]any{
+			"feedback_applied": true,
+			"embedding_id":     embeddingID,
+		}).Error
+}
+
+// IncrementEmbeddingRetrievalCount updates usage stats for retrieved embeddings.
+func (d *Database) IncrementEmbeddingRetrievalCount(embeddingIDs []uint) error {
+	if len(embeddingIDs) == 0 {
+		return nil
+	}
+	now := time.Now()
+	return d.gorm.Model(&FeedbackEmbedding{}).
+		Where("id IN ?", embeddingIDs).
+		Updates(map[string]any{
+			"retrieval_count":   gorm.Expr("retrieval_count + 1"),
+			"last_retrieved_at": &now,
+		}).Error
+}
+
+// GetUnprocessedOverrides returns overrides that haven't been converted to embeddings.
+func (d *Database) GetUnprocessedOverrides(limit int) ([]EvaluationOverride, error) {
+	query := d.gorm.Where("feedback_applied = ?", false).Order("created_at ASC")
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	var overrides []EvaluationOverride
+	if err := query.Find(&overrides).Error; err != nil {
+		return nil, err
+	}
+	return overrides, nil
+}
+
+// ========================
+// Feedback Statistics
+// ========================
+
+// CorrectionPattern holds FROM->TO recommendation correction counts.
+type CorrectionPattern struct {
+	FromRecommendation string  `json:"from_recommendation"`
+	ToRecommendation   string  `json:"to_recommendation"`
+	Count              int     `json:"count"`
+	Percentage         float64 `json:"percentage"`
+}
+
+// UserOverrideStat holds per-user override statistics.
+type UserOverrideStat struct {
+	User             string     `json:"user"`
+	TotalOverrides   int        `json:"total_overrides"`
+	MostCommonChange string     `json:"most_common_change"`
+	LastOverrideAt   *time.Time `json:"last_override_at"`
+}
+
+// ConfidenceBucket holds accuracy per confidence range.
+type ConfidenceBucket struct {
+	ConfidenceMin   float64 `json:"confidence_min"`
+	ConfidenceMax   float64 `json:"confidence_max"`
+	TotalCount      int     `json:"total_count"`
+	OverriddenCount int     `json:"overridden_count"`
+	AccuracyPercent float64 `json:"accuracy_percent"`
+}
+
+// FeedbackStats holds comprehensive feedback analytics.
+type FeedbackStats struct {
+	TotalOverrides      int64               `json:"total_overrides"`
+	TotalEvaluations    int64               `json:"total_evaluations"`
+	OverrideRate        float64             `json:"override_rate"`
+	AccuracyPercent     float64             `json:"accuracy_percent"`
+	BlockToAllowRate    float64             `json:"block_to_allow_rate"`
+	AllowToBlockRate    float64             `json:"allow_to_block_rate"`
+	AvgScoreAdjustment  float64             `json:"avg_score_adjustment"`
+	CorrectionPatterns  []CorrectionPattern `json:"correction_patterns"`
+	UserStats           []UserOverrideStat  `json:"user_stats"`
+	ConfidenceBuckets   []ConfidenceBucket  `json:"confidence_buckets"`
+	OverridesOverTime   []TimeSeriesPoint   `json:"overrides_over_time"`
+	AccuracyOverTime    []TimeSeriesPoint   `json:"accuracy_over_time"`
+}
+
+// GetFeedbackStats returns comprehensive feedback analytics.
+func (d *Database) GetFeedbackStats(batchID uint) (*FeedbackStats, error) {
+	stats := &FeedbackStats{}
+
+	// Total evaluations
+	evalQuery := d.gorm.Model(&Evaluation{})
+	if batchID > 0 {
+		evalQuery = evalQuery.Where("domain_normalized IN (SELECT domain_normalized FROM domain_batches WHERE batch_id = ?)", batchID)
+	}
+	if err := evalQuery.Count(&stats.TotalEvaluations).Error; err != nil {
+		return nil, err
+	}
+
+	// Total overrides
+	overrideQuery := d.gorm.Model(&EvaluationOverride{})
+	if batchID > 0 {
+		overrideQuery = overrideQuery.Where("domain_normalized IN (SELECT domain_normalized FROM domain_batches WHERE batch_id = ?)", batchID)
+	}
+	if err := overrideQuery.Count(&stats.TotalOverrides).Error; err != nil {
+		return nil, err
+	}
+
+	// Calculate override rate and accuracy
+	if stats.TotalEvaluations > 0 {
+		stats.OverrideRate = (float64(stats.TotalOverrides) / float64(stats.TotalEvaluations)) * 100
+		stats.AccuracyPercent = 100 - stats.OverrideRate
+	}
+
+	// Correction patterns
+	var patterns []struct {
+		OriginalRecommendation string
+		OverrideRecommendation string
+		Count                  int64
+	}
+	patternQuery := d.gorm.Model(&EvaluationOverride{}).
+		Select("original_recommendation, override_recommendation, COUNT(*) as count").
+		Group("original_recommendation, override_recommendation").
+		Order("count DESC")
+	if batchID > 0 {
+		patternQuery = patternQuery.Where("domain_normalized IN (SELECT domain_normalized FROM domain_batches WHERE batch_id = ?)", batchID)
+	}
+	if err := patternQuery.Scan(&patterns).Error; err != nil {
+		return nil, err
+	}
+
+	var blockToAllow, allowToBlock int64
+	for _, p := range patterns {
+		pct := float64(0)
+		if stats.TotalOverrides > 0 {
+			pct = (float64(p.Count) / float64(stats.TotalOverrides)) * 100
+		}
+		stats.CorrectionPatterns = append(stats.CorrectionPatterns, CorrectionPattern{
+			FromRecommendation: p.OriginalRecommendation,
+			ToRecommendation:   p.OverrideRecommendation,
+			Count:              int(p.Count),
+			Percentage:         pct,
+		})
+		// Track specific patterns
+		if p.OriginalRecommendation == "BLOCK" && (p.OverrideRecommendation == "ALLOW" || p.OverrideRecommendation == "ALLOW_WITH_CAUTION") {
+			blockToAllow += p.Count
+		}
+		if (p.OriginalRecommendation == "ALLOW" || p.OriginalRecommendation == "ALLOW_WITH_CAUTION") && p.OverrideRecommendation == "BLOCK" {
+			allowToBlock += p.Count
+		}
+	}
+	if stats.TotalOverrides > 0 {
+		stats.BlockToAllowRate = float64(blockToAllow) / float64(stats.TotalOverrides) * 100
+		stats.AllowToBlockRate = float64(allowToBlock) / float64(stats.TotalOverrides) * 100
+	}
+
+	// Average score adjustment
+	var avgAdj *float64
+	adjQuery := d.gorm.Model(&EvaluationOverride{}).
+		Select("AVG(ABS(COALESCE(override_trademark_score, original_trademark_score) - original_trademark_score) + ABS(COALESCE(override_vice_score, original_vice_score) - original_vice_score))")
+	if batchID > 0 {
+		adjQuery = adjQuery.Where("domain_normalized IN (SELECT domain_normalized FROM domain_batches WHERE batch_id = ?)", batchID)
+	}
+	if err := adjQuery.Scan(&avgAdj).Error; err == nil && avgAdj != nil {
+		stats.AvgScoreAdjustment = *avgAdj
+	}
+
+	// User stats with most common change
+	var userStats []struct {
+		OverriddenBy   string
+		TotalOverrides int64
+		LastOverrideAt *time.Time
+	}
+	userQuery := d.gorm.Model(&EvaluationOverride{}).
+		Select("overridden_by, COUNT(*) as total_overrides, MAX(created_at) as last_override_at").
+		Group("overridden_by").
+		Order("total_overrides DESC").
+		Limit(10)
+	if batchID > 0 {
+		userQuery = userQuery.Where("domain_normalized IN (SELECT domain_normalized FROM domain_batches WHERE batch_id = ?)", batchID)
+	}
+	if err := userQuery.Scan(&userStats).Error; err != nil {
+		return nil, err
+	}
+	for _, u := range userStats {
+		// Get most common change for this user
+		var mostCommon struct {
+			OriginalRecommendation string
+			OverrideRecommendation string
+		}
+		d.gorm.Model(&EvaluationOverride{}).
+			Select("original_recommendation, override_recommendation").
+			Where("overridden_by = ?", u.OverriddenBy).
+			Group("original_recommendation, override_recommendation").
+			Order("COUNT(*) DESC").
+			Limit(1).
+			Scan(&mostCommon)
+
+		change := ""
+		if mostCommon.OriginalRecommendation != "" && mostCommon.OverrideRecommendation != "" {
+			change = mostCommon.OriginalRecommendation + " → " + mostCommon.OverrideRecommendation
+		}
+
+		stats.UserStats = append(stats.UserStats, UserOverrideStat{
+			User:             u.OverriddenBy,
+			TotalOverrides:   int(u.TotalOverrides),
+			MostCommonChange: change,
+			LastOverrideAt:   u.LastOverrideAt,
+		})
+	}
+
+	// Overrides over time (last 30 days)
+	var overridesTime []struct {
+		Date  string
+		Count int64
+	}
+	timeQuery := d.gorm.Model(&EvaluationOverride{}).
+		Select("DATE(created_at) as date, COUNT(*) as count").
+		Where("created_at >= DATE('now', '-30 days')").
+		Group("DATE(created_at)").
+		Order("date ASC")
+	if batchID > 0 {
+		timeQuery = timeQuery.Where("domain_normalized IN (SELECT domain_normalized FROM domain_batches WHERE batch_id = ?)", batchID)
+	}
+	if err := timeQuery.Scan(&overridesTime).Error; err != nil {
+		return nil, err
+	}
+	for _, t := range overridesTime {
+		stats.OverridesOverTime = append(stats.OverridesOverTime, TimeSeriesPoint{
+			Date:  t.Date,
+			Value: float64(t.Count),
+		})
+	}
+
+	// Confidence calibration buckets
+	calibrationRanges := []struct {
+		min, max float64
+	}{
+		{0.9, 1.0},
+		{0.8, 0.9},
+		{0.7, 0.8},
+		{0.6, 0.7},
+		{0.0, 0.6},
+	}
+	for _, r := range calibrationRanges {
+		var totalCount, overriddenCount int64
+		baseQuery := d.gorm.Model(&Evaluation{}).
+			Where("trademark_confidence >= ? AND trademark_confidence < ?", r.min, r.max)
+		if batchID > 0 {
+			baseQuery = baseQuery.Where("domain_normalized IN (SELECT domain_normalized FROM domain_batches WHERE batch_id = ?)", batchID)
+		}
+		baseQuery.Count(&totalCount)
+		baseQuery.Where("manual_override = ?", true).Count(&overriddenCount)
+
+		accuracy := 100.0
+		if totalCount > 0 {
+			accuracy = (1 - float64(overriddenCount)/float64(totalCount)) * 100
+		}
+		stats.ConfidenceBuckets = append(stats.ConfidenceBuckets, ConfidenceBucket{
+			ConfidenceMin:   r.min,
+			ConfidenceMax:   r.max,
+			TotalCount:      int(totalCount),
+			OverriddenCount: int(overriddenCount),
+			AccuracyPercent: accuracy,
+		})
+	}
+
+	// Accuracy over time (last 30 days) - calculated from daily override rate
+	var dailyStats []struct {
+		Date        string
+		TotalEvals  int64
+		Overridden  int64
+	}
+	accuracyQuery := d.gorm.Model(&Evaluation{}).
+		Select("DATE(created_at) as date, COUNT(*) as total_evals, SUM(CASE WHEN manual_override = 1 THEN 1 ELSE 0 END) as overridden").
+		Where("created_at >= DATE('now', '-30 days')").
+		Group("DATE(created_at)").
+		Order("date ASC")
+	if batchID > 0 {
+		accuracyQuery = accuracyQuery.Where("domain_normalized IN (SELECT domain_normalized FROM domain_batches WHERE batch_id = ?)", batchID)
+	}
+	if err := accuracyQuery.Scan(&dailyStats).Error; err == nil {
+		for _, s := range dailyStats {
+			accuracy := 100.0
+			if s.TotalEvals > 0 {
+				accuracy = (1 - float64(s.Overridden)/float64(s.TotalEvals)) * 100
+			}
+			stats.AccuracyOverTime = append(stats.AccuracyOverTime, TimeSeriesPoint{
+				Date:  s.Date,
+				Value: accuracy,
+			})
+		}
+	}
+
+	return stats, nil
+}
+
+// CountOverrides returns total override count.
+func (d *Database) CountOverrides() (int64, error) {
+	var count int64
+	if err := d.gorm.Model(&EvaluationOverride{}).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+// CountFeedbackEmbeddings returns total feedback embedding count.
+func (d *Database) CountFeedbackEmbeddings() (int64, error) {
+	var count int64
+	if err := d.gorm.Model(&FeedbackEmbedding{}).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
 }

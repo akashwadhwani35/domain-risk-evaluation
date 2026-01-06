@@ -55,6 +55,7 @@ type ExplanationInput struct {
 	CommercialSource     string
 	CommercialSimilarity float64
 	CommercialPrice      float64
+	FeedbackContext      string // Past feedback examples formatted for AI learning
 }
 
 // Client implements the Explainer interface against the OpenAI API.
@@ -318,6 +319,12 @@ func (c *Client) buildUserPrompt(input ExplanationInput) string {
 	}
 	if cue := strings.TrimSpace(input.OpeningCue); cue != "" {
 		builder.WriteString(fmt.Sprintf("Begin the first sentence with \"%s\" while keeping the tone natural and directly referencing the second-level label.\n", cue))
+	}
+	// Include feedback from past corrections if available
+	if feedback := strings.TrimSpace(input.FeedbackContext); feedback != "" {
+		builder.WriteString("\n")
+		builder.WriteString(feedback)
+		builder.WriteString("\n")
 	}
 	second := strings.TrimSpace(input.SecondLevel)
 	top := strings.TrimSpace(input.TopLevel)

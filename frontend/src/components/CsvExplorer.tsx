@@ -15,26 +15,26 @@ export default function CsvExplorer({ open, batches, selectedId, onSelect, onClo
   const items = Array.isArray(batches) ? batches : [];
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-6">
-      <div className="relative w-full max-w-6xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-8 space-y-6">
+    <div className="fixed inset-0 z-50 bg-black/30 backdrop-blur-sm flex items-center justify-center p-6">
+      <div className="relative w-full max-w-5xl rounded-3xl border border-[var(--line)] bg-[var(--surface)] shadow-[0_30px_80px_rgba(10,10,10,0.15)] p-8 space-y-6">
         <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <h2 className="text-xl font-semibold text-slate-100">CSV Explorer</h2>
-            <p className="text-sm text-slate-400">Browse uploaded CSV batches. Select one to load its results.</p>
+            <h2 className="text-xl font-semibold text-[var(--text)]">Datasets</h2>
+            <p className="text-sm text-[var(--muted)]">Select a batch to load its results.</p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800"
+            className="rounded-full border border-[var(--line)] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--text)] hover:bg-[var(--surface-2)]"
           >
             Close
           </button>
         </header>
 
         {items.length === 0 ? (
-          <p className="text-sm text-slate-400">No CSV batches yet. Upload a CSV to get started.</p>
+          <p className="text-sm text-[var(--muted)]">No CSV batches yet. Upload a CSV to get started.</p>
         ) : (
-          <div className="grid gap-6 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">
+          <div className="space-y-3">
             {items.map((batch) => {
               const isSelected = batch.id === selectedId;
               const remaining = Math.max(batch.unique_domains - batch.processed_domains, 0);
@@ -47,22 +47,26 @@ export default function CsvExplorer({ open, batches, selectedId, onSelect, onClo
                     onClose();
                   }}
                   className={clsx(
-                    'relative aspect-square rounded-2xl border border-slate-800 bg-slate-900/80 p-4 text-left transition-transform hover:-translate-y-1 hover:border-brand-500',
-                    isSelected && 'ring-2 ring-brand-500 border-brand-500'
+                    'w-full rounded-2xl border px-5 py-4 text-left transition-all',
+                    isSelected
+                      ? 'border-[var(--text)] bg-[var(--surface-2)] shadow-[0_10px_25px_rgba(10,10,10,0.08)]'
+                      : 'border-[var(--line)] bg-white hover:-translate-y-0.5 hover:shadow-[0_10px_25px_rgba(10,10,10,0.08)]'
                   )}
                 >
-                  <div className="flex flex-col h-full justify-between">
-                    <div className="space-y-2">
-                      <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-brand-500 to-brand-400/80 flex items-center justify-center text-white font-semibold text-lg">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div className="flex items-center gap-4">
+                      <div className="h-10 w-10 rounded-2xl bg-[var(--text)] text-white flex items-center justify-center text-sm font-semibold">
                         {initialsFor(batch.name)}
                       </div>
-                      <h3 className="text-sm font-semibold text-slate-100 break-words">{batch.name}</h3>
-                      <p className="text-xs text-slate-400">Owner: {batch.owner}</p>
+                      <div>
+                        <h3 className="text-sm font-semibold text-[var(--text)] break-words">{batch.name}</h3>
+                        <p className="text-xs text-[var(--muted)]">Owner: {batch.owner}</p>
+                      </div>
                     </div>
-                    <div className="text-xs text-slate-400 space-y-1">
-                      <p>Total: {batch.row_count.toLocaleString()}</p>
-                      <p>Evaluated: {batch.processed_domains.toLocaleString()}</p>
-                      <p>Remaining: {remaining.toLocaleString()}</p>
+                    <div className="text-xs text-[var(--muted)] flex flex-wrap gap-4">
+                      <span>Total {batch.row_count.toLocaleString()}</span>
+                      <span>Evaluated {batch.processed_domains.toLocaleString()}</span>
+                      <span>Remaining {remaining.toLocaleString()}</span>
                     </div>
                   </div>
                 </button>

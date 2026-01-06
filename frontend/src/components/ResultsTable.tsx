@@ -30,6 +30,7 @@ interface ResultsTableProps {
     sort?: string;
   };
   batchName?: string;
+  onRowClick?: (evaluation: EvaluationDTO) => void;
 }
 
 const SORT_OPTIONS = [
@@ -54,7 +55,8 @@ export default function ResultsTable({
   onExport,
   tldOptions,
   filters,
-  batchName
+  batchName,
+  onRowClick
 }: ResultsTableProps) {
   const [search, setSearch] = useState('');
   const [minScore, setMinScore] = useState<number | undefined>(undefined);
@@ -62,9 +64,24 @@ export default function ResultsTable({
   const [tld, setTld] = useState('');
   const [recommendation, setRecommendation] = useState<string | undefined>(undefined);
   const [sort, setSort] = useState<string>(filters.sort ?? 'created_desc');
+  const [showFilters, setShowFilters] = useState(false);
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
 
   const safeTldOptions = Array.isArray(tldOptions) ? tldOptions : [];
   const rows = Array.isArray(data) ? data : [];
+
+  const toggleRow = (id: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setExpandedRows(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -90,60 +107,40 @@ export default function ResultsTable({
   }, [filters.q, filters.minScore, filters.minViceScore, filters.tld, filters.recommendation, filters.sort]);
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / pageSize)), [total, pageSize]);
+  const hasActiveFilters = minScore !== undefined || minViceScore !== undefined || tld !== '' || recommendation !== undefined;
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/70 shadow-sm">
-      <div className="space-y-5 p-5">
-        <header className="flex flex-col gap-1">
-          <h2 className="text-base font-semibold text-slate-100">Evaluation results</h2>
-          <p className="text-sm text-slate-400">
-            {batchName ? `${batchName} • ` : ''}
-            {total.toLocaleString()} domains scored.
-          </p>
-        </header>
+    <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)] overflow-hidden">
+      {/* Header */}
+      <div className="p-5 border-b border-[var(--line)]">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-[var(--text)]">Results</h2>
+            <p className="text-sm text-[var(--muted)]">
+              {batchName ? `${batchName} · ` : ''}{total.toLocaleString()} domains
+            </p>
+          </div>
+          <ExportButtons onExport={onExport} disabled={loading || rows.length === 0} />
+        </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <input
-            type="search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search domain or trademark"
-            className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-slate-200 focus:outline-none"
-          />
-          <select
-            value={minScore ?? ''}
-            onChange={(event) => {
-              const value = event.target.value;
-              setMinScore(value === '' ? undefined : Number(value));
-            }}
-            className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-200 focus:border-slate-200 focus:outline-none"
-          >
-            <option value="">All trademark scores</option>
-            <option value="5">Trademark ≥ 5</option>
-            <option value="4">Trademark ≥ 4</option>
-            <option value="3">Trademark ≥ 3</option>
-            <option value="2">Trademark ≥ 2</option>
-          </select>
-          <select
-            value={minViceScore ?? ''}
-            onChange={(event) => {
-              const value = event.target.value;
-              setMinViceScore(value === '' ? undefined : Number(value));
-            }}
-            className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-200 focus:border-slate-200 focus:outline-none"
-          >
-            <option value="">All vice scores</option>
-            <option value="5">Vice ≥ 5</option>
-            <option value="4">Vice ≥ 4</option>
-            <option value="3">Vice ≥ 3</option>
-          </select>
+        {/* Search and primary filters */}
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="flex-1">
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search domain or trademark..."
+              className="w-full rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-4 py-2.5 text-[var(--text)] placeholder:text-[var(--muted)] focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
+            />
+          </div>
           <select
             value={recommendation ?? ''}
             onChange={(event) => {
               const value = event.target.value;
               setRecommendation(value === '' ? undefined : value);
             }}
-            className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-200 focus:border-slate-200 focus:outline-none"
+            className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-4 py-2.5 text-[var(--text)] focus:border-[var(--accent)] focus:outline-none"
           >
             <option value="">All recommendations</option>
             <option value="BLOCK">Block</option>
@@ -154,7 +151,7 @@ export default function ResultsTable({
           <select
             value={sort}
             onChange={(event) => setSort(event.target.value)}
-            className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-200 focus:border-slate-200 focus:outline-none"
+            className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-4 py-2.5 text-[var(--text)] focus:border-[var(--accent)] focus:outline-none"
           >
             {SORT_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -162,104 +159,239 @@ export default function ResultsTable({
               </option>
             ))}
           </select>
-          <select
-            value={tld}
-            onChange={(event) => setTld(event.target.value)}
-            className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-200 focus:border-slate-200 focus:outline-none"
+          <button
+            type="button"
+            onClick={() => setShowFilters(!showFilters)}
+            className={clsx(
+              'rounded-lg border px-4 py-2.5 text-sm font-medium flex items-center gap-2 whitespace-nowrap',
+              showFilters || hasActiveFilters
+                ? 'border-[var(--accent)] text-[var(--accent)] bg-[var(--accent-soft)]'
+                : 'border-[var(--line)] text-[var(--text)] hover:bg-[var(--surface-2)]'
+            )}
           >
-            <option value="">All TLDs</option>
-            {safeTldOptions.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-          <div className="flex items-center gap-2 text-xs text-slate-400 lg:col-span-2">
-            <span>
-              Page {page + 1} of {totalPages}
-            </span>
-            <span className="hidden sm:inline">•</span>
-            <ExportButtons onExport={onExport} disabled={loading || rows.length === 0} />
-          </div>
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+            </svg>
+            Filters
+            {hasActiveFilters && <span className="w-2 h-2 rounded-full bg-[var(--accent)]" />}
+          </button>
         </div>
+
+        {/* Advanced filters (collapsible) */}
+        {showFilters && (
+          <div className="mt-4 p-4 bg-[var(--surface-2)] rounded-lg border border-[var(--line)]">
+            <div className="flex flex-wrap gap-4 items-end">
+              <div>
+                <label className="block text-sm font-medium text-[var(--muted)] mb-1">Min Trademark Score</label>
+                <select
+                  value={minScore ?? ''}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setMinScore(value === '' ? undefined : Number(value));
+                  }}
+                  className="rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-[var(--text)]"
+                >
+                  <option value="">Any</option>
+                  <option value="5">≥ 5</option>
+                  <option value="4">≥ 4</option>
+                  <option value="3">≥ 3</option>
+                  <option value="2">≥ 2</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[var(--muted)] mb-1">Min Vice Score</label>
+                <select
+                  value={minViceScore ?? ''}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setMinViceScore(value === '' ? undefined : Number(value));
+                  }}
+                  className="rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-[var(--text)]"
+                >
+                  <option value="">Any</option>
+                  <option value="5">≥ 5</option>
+                  <option value="4">≥ 4</option>
+                  <option value="3">≥ 3</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-[var(--muted)] mb-1">TLD</label>
+                <select
+                  value={tld}
+                  onChange={(event) => setTld(event.target.value)}
+                  className="rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-[var(--text)]"
+                >
+                  <option value="">All TLDs</option>
+                  {safeTldOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setMinScore(undefined);
+                  setMinViceScore(undefined);
+                  setTld('');
+                  setRecommendation(undefined);
+                }}
+                className="rounded-lg border border-[var(--line)] px-4 py-2 text-sm font-medium text-[var(--muted)] hover:bg-[var(--surface)]"
+              >
+                Clear all
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
-      <div className="overflow-x-auto border-t border-slate-800">
-        <table className="w-full min-w-full table-fixed divide-y divide-slate-800 text-sm">
-          <thead className="bg-slate-900/40 text-xs uppercase tracking-wide text-slate-400">
+      {/* Table - Simplified columns */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-left">
+          <thead className="bg-[var(--surface-2)] text-sm text-[var(--muted)] border-b border-[var(--line)]">
             <tr>
-              <th className="w-[240px] px-6 py-4 text-left">Domain</th>
-              <th className="w-[180px] px-6 py-4 text-left">Trademark</th>
-              <th className="w-[220px] px-6 py-4 text-left">Matched mark</th>
-              <th className="w-[220px] px-6 py-4 text-left">Vice</th>
-              <th className="w-[180px] px-6 py-4 text-left">Recommendation</th>
-              <th className="px-6 py-4 text-left md:w-[560px] xl:w-[720px]">Explanation</th>
-              <th className="w-[120px] px-6 py-4 text-right">Confidence</th>
-              <th className="w-[220px] px-6 py-4 text-left">Commercial</th>
-              <th className="w-[160px] px-6 py-4 text-right">Evaluated</th>
+              <th className="w-10 px-4 py-3"></th>
+              <th className="px-4 py-3 font-medium">Domain</th>
+              <th className="px-4 py-3 font-medium text-center w-24">TM</th>
+              <th className="px-4 py-3 font-medium text-center w-24">Vice</th>
+              <th className="px-4 py-3 font-medium w-40">Decision</th>
+              <th className="px-4 py-3 font-medium text-right w-32">Date</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-800">
+          <tbody className="divide-y divide-[var(--line)]">
             {loading ? (
               <tr>
-                <td colSpan={9} className="px-6 py-12 text-center text-slate-400">
-                  Processing…
+                <td colSpan={6} className="px-4 py-12 text-center text-[var(--muted)]">
+                  <div className="flex items-center justify-center gap-2">
+                    <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    Loading...
+                  </div>
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-6 py-12 text-center text-slate-400">
+                <td colSpan={6} className="px-4 py-12 text-center text-[var(--muted)]">
                   No results yet. Upload a CSV and run an evaluation.
                 </td>
               </tr>
             ) : (
-              rows.map((row) => (
-                <tr key={row.id} className="bg-slate-900/70 hover:bg-slate-900/80">
-                  <td className="px-6 py-5 align-top font-medium text-slate-100 whitespace-nowrap overflow-hidden text-ellipsis">{row.domain}</td>
-                  <td className="px-6 py-5 align-top">
-                    <div className="flex items-center gap-2">
-                      <ScoreBadge variant="trademark" score={row.trademark_score} label={row.trademark_score} />
-                      <span className="text-xs text-slate-400">{row.trademark_type || '—'}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-5 align-top text-slate-300 break-words">{row.matched_trademark || '—'}</td>
-                  <td className="px-6 py-5 align-top">
-                    <div className="flex items-center gap-2">
-                      <ScoreBadge variant="vice" score={row.vice_score} label={row.vice_score} />
-                      <span className="text-xs text-slate-400">
-                        {(row.vice_categories ?? []).join(', ') || '—'}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-5 align-top">
-                    <ScoreBadge variant="overall" label={row.overall_recommendation} />
-                  </td>
-                  <td className="px-6 py-5 align-top whitespace-pre-line text-slate-200 md:w-[560px] xl:w-[720px] leading-relaxed">
-                    {row.explanation || '—'}
-                  </td>
-                  <td className="px-6 py-5 align-top text-right text-slate-300">
-                    {row.confidence.toFixed(2)}
-                  </td>
-                  <td className="px-6 py-5 align-top text-xs text-slate-400">
-                    {row.commercial_override
-                      ? `Override — ${row.commercial_source || 'High sale'} (${Math.round(row.commercial_similarity * 100)}% match)`
-                      : row.commercial_source
-                        ? `Signal — ${row.commercial_source} (${Math.round(row.commercial_similarity * 100)}% match)`
-                        : '—'}
-                  </td>
-                  <td className="px-6 py-5 text-right text-xs text-slate-400">
-                    {dayjs(row.created_at).format('YYYY-MM-DD HH:mm')}
-                  </td>
-                </tr>
-              ))
+              rows.map((row) => {
+                const isExpanded = expandedRows.has(row.id);
+                return (
+                  <tbody key={row.id} className="divide-y divide-[var(--line)]">
+                    <tr
+                      className={clsx(
+                        'transition-colors',
+                        isExpanded ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--surface-2)]',
+                        onRowClick && 'cursor-pointer'
+                      )}
+                      onClick={() => onRowClick?.(row)}
+                    >
+                      <td className="px-4 py-3">
+                        <button
+                          type="button"
+                          onClick={(e) => toggleRow(row.id, e)}
+                          className="p-1 rounded hover:bg-[var(--surface-2)]"
+                        >
+                          <svg
+                            className={clsx('w-4 h-4 text-[var(--muted)] transition-transform', isExpanded && 'rotate-90')}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                          </svg>
+                        </button>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-[var(--text)]">{row.domain}</span>
+                          {row.manual_override && (
+                            <span className="inline-flex items-center rounded bg-purple-100 px-1.5 py-0.5 text-xs font-medium text-purple-700">
+                              Override{row.override_count > 1 && ` (${row.override_count})`}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <ScoreBadge variant="trademark" score={row.trademark_score} label={row.trademark_score} />
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <ScoreBadge variant="vice" score={row.vice_score} label={row.vice_score} />
+                      </td>
+                      <td className="px-4 py-3">
+                        <ScoreBadge variant="overall" label={row.overall_recommendation} />
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm text-[var(--muted)]">
+                        {dayjs(row.created_at).format('MMM D, HH:mm')}
+                      </td>
+                    </tr>
+                    {isExpanded && (
+                      <tr className="bg-[var(--surface-2)]">
+                        <td colSpan={6} className="px-4 py-4">
+                          <div className="grid gap-4 md:grid-cols-3">
+                            {/* Trademark Details */}
+                            <div className="bg-[var(--surface)] rounded-lg p-4 border border-[var(--line)]">
+                              <h4 className="font-medium text-[var(--text)] mb-2">Trademark Analysis</h4>
+                              <div className="space-y-1 text-sm">
+                                <p><span className="text-[var(--muted)]">Type:</span> <span className="text-[var(--text)]">{row.trademark_type || 'None'}</span></p>
+                                <p><span className="text-[var(--muted)]">Match:</span> <span className="text-[var(--text)]">{row.matched_trademark || '—'}</span></p>
+                                <p><span className="text-[var(--muted)]">Confidence:</span> <span className="text-[var(--text)]">{(row.trademark_confidence * 100).toFixed(0)}%</span></p>
+                              </div>
+                            </div>
+
+                            {/* Vice Details */}
+                            <div className="bg-[var(--surface)] rounded-lg p-4 border border-[var(--line)]">
+                              <h4 className="font-medium text-[var(--text)] mb-2">Vice Analysis</h4>
+                              <div className="space-y-1 text-sm">
+                                <p><span className="text-[var(--muted)]">Categories:</span> <span className="text-[var(--text)]">{(row.vice_categories ?? []).join(', ') || '—'}</span></p>
+                                <p><span className="text-[var(--muted)]">Confidence:</span> <span className="text-[var(--text)]">{(row.vice_confidence * 100).toFixed(0)}%</span></p>
+                              </div>
+                            </div>
+
+                            {/* Commercial */}
+                            <div className="bg-[var(--surface)] rounded-lg p-4 border border-[var(--line)]">
+                              <h4 className="font-medium text-[var(--text)] mb-2">Commercial Signal</h4>
+                              <div className="space-y-1 text-sm">
+                                {row.commercial_source ? (
+                                  <>
+                                    <p><span className="text-[var(--muted)]">Source:</span> <span className="text-[var(--text)]">{row.commercial_source}</span></p>
+                                    <p><span className="text-[var(--muted)]">Similarity:</span> <span className="text-[var(--text)]">{(row.commercial_similarity * 100).toFixed(0)}%</span></p>
+                                    <p><span className="text-[var(--muted)]">Override:</span> <span className="text-[var(--text)]">{row.commercial_override ? 'Yes' : 'No'}</span></p>
+                                  </>
+                                ) : (
+                                  <p className="text-[var(--muted)]">No commercial data</p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Explanation */}
+                          {row.explanation && (
+                            <div className="mt-4 bg-[var(--surface)] rounded-lg p-4 border border-[var(--line)]">
+                              <h4 className="font-medium text-[var(--text)] mb-2">AI Explanation</h4>
+                              <p className="text-sm text-[var(--text)] leading-relaxed">{row.explanation}</p>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                );
+              })
             )}
           </tbody>
         </table>
       </div>
 
-      <footer className="flex flex-col gap-3 border-t border-slate-800 px-5 py-4 text-sm text-slate-300 sm:flex-row sm:items-center sm:justify-between">
-        <span>
-          Page {page + 1} of {totalPages}
+      {/* Footer / Pagination */}
+      <footer className="flex flex-col gap-3 border-t border-[var(--line)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <span className="text-sm text-[var(--muted)]">
+          Page {page + 1} of {totalPages} · {total.toLocaleString()} total
         </span>
         <div className="flex items-center gap-2">
           <button
@@ -267,10 +399,10 @@ export default function ResultsTable({
             onClick={() => onPageChange(Math.max(0, page - 1))}
             disabled={page === 0 || loading}
             className={clsx(
-              'rounded-full px-3 py-1 transition-colors',
+              'rounded-lg px-4 py-2 text-sm font-medium',
               page === 0 || loading
-                ? 'cursor-not-allowed bg-slate-800 text-slate-500'
-                : 'bg-slate-100 text-slate-900 hover:bg-white'
+                ? 'cursor-not-allowed bg-[var(--surface-2)] text-[var(--muted)]'
+                : 'bg-[var(--text)] text-white hover:opacity-90'
             )}
           >
             Previous
@@ -280,10 +412,10 @@ export default function ResultsTable({
             onClick={() => onPageChange(Math.min(totalPages - 1, page + 1))}
             disabled={page + 1 >= totalPages || loading}
             className={clsx(
-              'rounded-full px-3 py-1 transition-colors',
+              'rounded-lg px-4 py-2 text-sm font-medium',
               page + 1 >= totalPages || loading
-                ? 'cursor-not-allowed bg-slate-800 text-slate-500'
-                : 'bg-slate-100 text-slate-900 hover:bg-white'
+                ? 'cursor-not-allowed bg-[var(--surface-2)] text-[var(--muted)]'
+                : 'bg-[var(--text)] text-white hover:opacity-90'
             )}
           >
             Next
@@ -302,22 +434,22 @@ function ExportButtons({ onExport, disabled }: { onExport: (format: 'csv' | 'jso
         disabled={disabled}
         onClick={() => onExport('csv')}
         className={clsx(
-          'rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
-          disabled ? 'cursor-not-allowed bg-slate-800 text-slate-500' : 'bg-slate-100 text-slate-900 hover:bg-white'
+          'rounded-lg border border-[var(--line)] px-3 py-2 text-sm font-medium text-[var(--text)]',
+          disabled ? 'cursor-not-allowed opacity-40' : 'hover:bg-[var(--surface-2)]'
         )}
       >
-        Export CSV
+        CSV
       </button>
       <button
         type="button"
         disabled={disabled}
         onClick={() => onExport('json')}
         className={clsx(
-          'rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
-          disabled ? 'cursor-not-allowed bg-slate-800 text-slate-500' : 'bg-slate-100 text-slate-900 hover:bg-white'
+          'rounded-lg border border-[var(--line)] px-3 py-2 text-sm font-medium text-[var(--text)]',
+          disabled ? 'cursor-not-allowed opacity-40' : 'hover:bg-[var(--surface-2)]'
         )}
       >
-        Export JSON
+        JSON
       </button>
     </div>
   );

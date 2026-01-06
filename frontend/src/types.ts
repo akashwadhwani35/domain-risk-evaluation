@@ -27,6 +27,10 @@ export interface EvaluationDTO {
   commercial_override: boolean;
   commercial_source: string;
   commercial_similarity: number;
+  manual_override: boolean;
+  override_count: number;
+  last_override_at?: string | null;
+  feedback_used: number[];
 }
 
 export interface EvaluateResponse {
@@ -121,4 +125,153 @@ export interface EvaluationStatusResponse {
   processed?: number;
   total?: number;
   last_evaluation?: EvaluationDTO;
+}
+
+// Dashboard statistics types
+export interface StatsResponse {
+  total_evaluations: number;
+  total_batches: number;
+  recommendation_counts: RecommendationStats;
+  trademark_distribution: ScoreBucket[];
+  vice_distribution: ScoreBucket[];
+  top_trademark_risks: EvaluationDTO[];
+  top_vice_risks: EvaluationDTO[];
+  recent_batches: BatchSummary[];
+  avg_processing_time_ms: number;
+  evaluations_over_time: TimeSeriesPoint[];
+}
+
+export interface RecommendationStats {
+  block: number;
+  review: number;
+  allow_with_caution: number;
+  allow: number;
+}
+
+export interface ScoreBucket {
+  score: number;
+  count: number;
+}
+
+export interface BatchSummary {
+  id: number;
+  name: string;
+  owner: string;
+  total_domains: number;
+  processed_domains: number;
+  block_count: number;
+  review_count: number;
+  caution_count: number;
+  allow_count: number;
+  created_at: string;
+  last_evaluated_at?: string | null;
+}
+
+export interface TimeSeriesPoint {
+  date: string;
+  count?: number;
+  value?: number;
+}
+
+// Override types
+export interface OverrideRequest {
+  overridden_by: string;
+  reason: string;
+  override_recommendation: string;
+  override_explanation?: string;
+  override_trademark_score?: number | null;
+  override_vice_score?: number | null;
+}
+
+export interface OverrideDTO {
+  id: number;
+  evaluation_id: number;
+  domain: string;
+  original_trademark_score: number;
+  original_vice_score: number;
+  original_recommendation: string;
+  original_explanation: string;
+  override_trademark_score: number | null;
+  override_vice_score: number | null;
+  override_recommendation: string;
+  override_explanation: string;
+  overridden_by: string;
+  reason: string;
+  feedback_applied: boolean;
+  created_at: string;
+}
+
+export interface OverrideHistoryResponse {
+  evaluation: EvaluationDTO;
+  overrides: OverrideDTO[];
+}
+
+export interface OverridesResponse {
+  items: OverrideDTO[];
+  total: number;
+}
+
+// Feedback types
+export interface FeedbackDTO {
+  id: number;
+  override_id: number;
+  domain: string;
+  second_level_label: string;
+  corrected_recommendation: string;
+  corrected_explanation: string;
+  corrected_trademark_score: number | null;
+  corrected_vice_score: number | null;
+  retrieval_count: number;
+  last_retrieved_at: string | null;
+  created_at: string;
+}
+
+export interface FeedbacksResponse {
+  items: FeedbackDTO[];
+  total: number;
+}
+
+// AI Learning Analytics types
+export interface AIAccuracyMetrics {
+  total_evaluations: number;
+  overridden_evaluations: number;
+  accuracy_percent: number;
+  block_to_allow_rate: number;
+  allow_to_block_rate: number;
+  average_score_adjustment: number;
+}
+
+export interface CorrectionPattern {
+  from_recommendation: string;
+  to_recommendation: string;
+  count: number;
+  percentage: number;
+}
+
+export interface UserOverrideStats {
+  user: string;
+  total_overrides: number;
+  most_common_change: string;
+  last_override_at: string | null;
+}
+
+export interface ConfidenceCalibrationBucket {
+  confidence_min: number;
+  confidence_max: number;
+  total_count: number;
+  overridden_count: number;
+  accuracy_percent: number;
+}
+
+export interface FeedbackStatsResponse {
+  total_overrides: number;
+  total_feedback_embeddings: number;
+  override_rate_percent: number;
+  feedback_impact_score: number;
+  ai_accuracy: AIAccuracyMetrics;
+  correction_patterns: CorrectionPattern[];
+  user_stats: UserOverrideStats[];
+  confidence_calibration: ConfidenceCalibrationBucket[];
+  overrides_over_time: TimeSeriesPoint[];
+  accuracy_over_time: TimeSeriesPoint[];
 }

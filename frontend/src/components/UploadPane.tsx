@@ -53,12 +53,12 @@ export default function UploadPane({ onProcess, onEvaluate, busy }: UploadPanePr
   };
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 shadow-sm">
+    <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
       <header className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-sm font-semibold text-slate-100">Dataset</h2>
-          <p className="text-xs text-slate-400">
-            Upload a CSV or run the evaluation for the latest batch already on the server.
+          <h2 className="font-semibold text-[var(--text)]">Upload Dataset</h2>
+          <p className="text-sm text-[var(--muted)]">
+            Upload a CSV or run the current batch.
           </p>
         </div>
         <button
@@ -66,79 +66,77 @@ export default function UploadPane({ onProcess, onEvaluate, busy }: UploadPanePr
           onClick={handleSubmit}
           disabled={busy || processing}
           className={clsx(
-            'rounded-full px-4 py-1.5 text-sm font-medium transition-colors',
+            'rounded-lg px-4 py-2 text-sm font-medium transition-all',
             busy || processing
-              ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
-              : 'bg-slate-100 text-slate-900 hover:bg-white'
+              ? 'bg-[var(--surface-2)] text-[var(--muted)] cursor-not-allowed'
+              : 'bg-[var(--text)] text-white hover:opacity-90'
           )}
         >
-          {processing || busy ? 'Working…' : csvFile ? 'Upload & evaluate' : 'Evaluate batch'}
+          {processing || busy ? 'Working…' : csvFile ? 'Upload & Run' : 'Run Batch'}
         </button>
       </header>
 
-      <div className="mt-5 space-y-3 text-sm">
-        <label className="flex flex-col gap-1 text-slate-300">
-          <span className="text-xs uppercase tracking-wide text-slate-500">Domains CSV</span>
+      <div className="mt-4 space-y-3">
+        <label className="flex flex-col gap-1.5 text-[var(--text)]">
+          <span className="text-sm font-medium text-[var(--muted)]">Domains CSV</span>
           <input
             type="file"
             accept=".csv"
             onChange={(event) => setCsvFile(event.target.files?.[0] ?? null)}
-            className="block w-full rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-200 file:mr-3 file:rounded-md file:border-0 file:bg-slate-800 file:px-3 file:py-2 file:text-slate-200 hover:file:bg-slate-700"
+            className="block w-full rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2.5 text-sm text-[var(--text)] file:mr-3 file:rounded-md file:border-0 file:bg-[var(--text)] file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white hover:file:opacity-90"
           />
-          {csvFile && <span className="text-xs text-slate-500">{csvFile.name}</span>}
+          {csvFile && <span className="text-sm text-[var(--muted)]">{csvFile.name}</span>}
         </label>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <label className="flex flex-col gap-1 text-slate-300">
-            <span className="text-xs uppercase tracking-wide text-slate-500">Batch name</span>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="flex flex-col gap-1.5 text-[var(--text)]">
+            <span className="text-sm font-medium text-[var(--muted)]">Batch Name</span>
             <input
               type="text"
               value={batchName}
               onChange={(event) => setBatchName(event.target.value)}
               placeholder="e.g. October upload"
-              className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-slate-200 focus:outline-none"
+              className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2.5 text-sm text-[var(--text)] placeholder:text-[var(--muted)] focus:border-[var(--accent)] focus:outline-none"
             />
           </label>
-          <label className="flex flex-col gap-1 text-slate-300">
-            <span className="text-xs uppercase tracking-wide text-slate-500">Owner</span>
+          <label className="flex flex-col gap-1.5 text-[var(--text)]">
+            <span className="text-sm font-medium text-[var(--muted)]">Owner</span>
             <input
               type="text"
               value={ownerName}
               onChange={(event) => setOwnerName(event.target.value)}
               placeholder="Team or person"
-              className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-slate-200 focus:outline-none"
+              className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2.5 text-sm text-[var(--text)] placeholder:text-[var(--muted)] focus:border-[var(--accent)] focus:outline-none"
             />
           </label>
         </div>
       </div>
 
       {lastResponse && (
-        <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-950/50 p-6 text-sm text-slate-100 shadow-sm">
-          <div className="flex flex-col gap-1">
-            <p className="text-sm font-semibold text-slate-200">{lastResponse.batch_name}</p>
-            <p className="text-xs uppercase tracking-wide text-slate-500">Upload summary</p>
+        <div className="mt-4 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] p-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className="font-medium text-[var(--text)]">{lastResponse.batch_name}</p>
+            <span className="text-sm text-[var(--muted)]">Upload complete</span>
           </div>
-          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-2 gap-2">
             <Stat label="Rows" value={lastResponse.row_count} />
-            <Stat label="Unique domains" value={lastResponse.unique_domains} />
-            <Stat label="Already evaluated" value={lastResponse.processed_domains} />
+            <Stat label="Unique" value={lastResponse.unique_domains} />
+            <Stat label="Evaluated" value={lastResponse.processed_domains} />
             <Stat label="Duplicates" value={lastResponse.duplicate_rows} />
-            <Stat label="Existing matches" value={lastResponse.existing_domains} />
-            <Stat label="Marks in DB" value={lastResponse.marks_count} />
           </div>
         </div>
       )}
 
-      {error && <p className="mt-4 text-xs text-red-400">{error}</p>}
+      {error && <p className="mt-3 text-sm text-[var(--danger)]">{error}</p>}
     </section>
   );
 }
 
 function Stat({ label, value }: { label: string; value: number }) {
   return (
-    <div className="flex flex-col rounded-xl border border-slate-800/60 bg-slate-900/60 px-4 py-3">
-      <span className="text-xs uppercase tracking-wide text-slate-500">{label}</span>
-      <span className="text-base font-semibold text-slate-100 leading-tight">{value.toLocaleString()}</span>
+    <div className="flex items-center justify-between rounded-md bg-[var(--surface)] px-3 py-2 border border-[var(--line)]">
+      <span className="text-sm text-[var(--muted)]">{label}</span>
+      <span className="font-semibold text-[var(--text)]">{value.toLocaleString()}</span>
     </div>
   );
 }

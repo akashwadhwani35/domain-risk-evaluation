@@ -97,7 +97,116 @@ type Evaluation struct {
 	CommercialOverride    bool
 	CommercialSource      string `gorm:"size:255"`
 	CommercialSimilarity  float64
-	CreatedAt             time.Time `gorm:"autoCreateTime"`
+	// Manual override tracking
+	ManualOverride   bool       `gorm:"default:false;index"`
+	FeedbackUsedJSON string     `gorm:"type:text"`
+	LastOverrideAt   *time.Time `gorm:"index"`
+	OverrideCount    int        `gorm:"default:0"`
+	CreatedAt        time.Time  `gorm:"autoCreateTime"`
+}
+
+// SetFeedbackUsed stores the IDs of feedback embeddings used during evaluation.
+func (e *Evaluation) SetFeedbackUsed(ids []uint) {
+	if ids == nil {
+		e.FeedbackUsedJSON = "[]"
+		return
+	}
+	payload, _ := json.Marshal(ids)
+	e.FeedbackUsedJSON = string(payload)
+}
+
+// FeedbackUsed returns the IDs of feedback embeddings that were used.
+func (e *Evaluation) FeedbackUsed() []uint {
+	if strings.TrimSpace(e.FeedbackUsedJSON) == "" {
+		return nil
+	}
+	var out []uint
+	if err := json.Unmarshal([]byte(e.FeedbackUsedJSON), &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+// EvaluationOverride stores a manual override with full audit trail.
+type EvaluationOverride struct {
+	ID               uint   `gorm:"primaryKey"`
+	EvaluationID     uint   `gorm:"index;not null"`
+	DomainNormalized string `gorm:"size:255;index"`
+
+	// Original values (snapshot at time of override)
+	OriginalTrademarkScore int
+	OriginalViceScore      int
+	OriginalRecommendation string `gorm:"size:32"`
+	OriginalExplanation    string `gorm:"type:text"`
+
+	// Override values (nil means no change for scores)
+	OverrideTrademarkScore *int   `gorm:"type:integer"`
+	OverrideViceScore      *int   `gorm:"type:integer"`
+	OverrideRecommendation string `gorm:"size:32;not null"`
+	OverrideExplanation    string `gorm:"type:text"`
+
+	// Audit fields
+	OverriddenBy string `gorm:"size:128;index;not null"`
+	Reason       string `gorm:"type:text;not null"`
+
+	// Feedback tracking
+	FeedbackApplied bool  `gorm:"default:false"`
+	EmbeddingID     *uint `gorm:"index"`
+
+	CreatedAt time.Time `gorm:"autoCreateTime"`
+}
+
+// FeedbackEmbedding stores vector embeddings for feedback retrieval.
+type FeedbackEmbedding struct {
+	ID               uint   `gorm:"primaryKey"`
+	OverrideID       uint   `gorm:"uniqueIndex"`
+	DomainNormalized string `gorm:"size:255;index"`
+	SecondLevelLabel string `gorm:"size:255"`
+
+	// The text that was embedded (for debugging/display)
+	EmbeddingText string `gorm:"type:text;not null"`
+
+	// Vector storage (JSON array of float64)
+	// Using text-embedding-3-small: 1536 dimensions
+	EmbeddingJSON      string `gorm:"type:text;not null"`
+	EmbeddingDimension int    `gorm:"default:1536"`
+
+	// Feedback metadata (denormalized for retrieval)
+	CorrectedRecommendation string `gorm:"size:32"`
+	CorrectedExplanation    string `gorm:"type:text"`
+	CorrectedTrademarkScore *int   `gorm:"type:integer"`
+	CorrectedViceScore      *int   `gorm:"type:integer"`
+
+	// Usage tracking
+	RetrievalCount  int        `gorm:"default:0"`
+	LastRetrievedAt *time.Time
+
+	CreatedAt time.Time `gorm:"autoCreateTime"`
+	UpdatedAt time.Time `gorm:"autoUpdateTime"`
+}
+
+// SetEmbedding stores the embedding vector as JSON.
+func (f *FeedbackEmbedding) SetEmbedding(vector []float64) {
+	if vector == nil {
+		f.EmbeddingJSON = "[]"
+		f.EmbeddingDimension = 0
+		return
+	}
+	payload, _ := json.Marshal(vector)
+	f.EmbeddingJSON = string(payload)
+	f.EmbeddingDimension = len(vector)
+}
+
+// Embedding returns the parsed embedding vector.
+func (f *FeedbackEmbedding) Embedding() []float64 {
+	if strings.TrimSpace(f.EmbeddingJSON) == "" {
+		return nil
+	}
+	var out []float64
+	if err := json.Unmarshal([]byte(f.EmbeddingJSON), &out); err != nil {
+		return nil
+	}
+	return out
 }
 
 // CSVBatch represents an uploaded CSV dataset.

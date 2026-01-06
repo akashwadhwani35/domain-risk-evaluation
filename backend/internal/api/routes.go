@@ -50,33 +50,35 @@ type Config struct {
 
 // Server wires HTTP handlers with persistence and scoring.
 type Server struct {
-	db              *store.Database
-	seedPath        string
-	vicePath        string
-	defaultXMLPath  string
-	defaultDomains  string
-	viceScorer      *scoring.ViceScorer
-	fancifulDecider *scoring.FancifulDecider
-	allowedOrigins  []string
-	explainer       ai.Explainer
-	usptoClient     *usp.Client
-	evalNotifier    *EvaluationNotifier
-	jobMu           sync.Mutex
-	activeJob       *evaluationJob
-	commercial      *commercial.Service
-	commercialPath  string
-	popularLimit    int
-	popularMinCount int
-	marksLimit      int
-	marksOnce       sync.Once
-	marksCache      []store.Mark
-	marksErr        error
-	tldCache        []string
-	tldCacheAt      time.Time
-	tldCacheLimit   int
-	tldCacheTotal   int64
+	db                *store.Database
+	seedPath          string
+	vicePath          string
+	defaultXMLPath    string
+	defaultDomains    string
+	viceScorer        *scoring.ViceScorer
+	fancifulDecider   *scoring.FancifulDecider
+	allowedOrigins    []string
+	explainer         ai.Explainer
+	embeddingClient   *ai.EmbeddingClient
+	feedbackRetriever *ai.FeedbackRetriever
+	usptoClient       *usp.Client
+	evalNotifier      *EvaluationNotifier
+	jobMu             sync.Mutex
+	activeJob         *evaluationJob
+	commercial        *commercial.Service
+	commercialPath    string
+	popularLimit      int
+	popularMinCount   int
+	marksLimit        int
+	marksOnce         sync.Once
+	marksCache        []store.Mark
+	marksErr          error
+	tldCache          []string
+	tldCacheAt        time.Time
+	tldCacheLimit     int
+	tldCacheTotal     int64
 	tldCacheTruncated bool
-	tldCacheMu      sync.Mutex
+	tldCacheMu        sync.Mutex
 }
 
 const commercialMinPrice = 10000.0
@@ -140,6 +142,21 @@ func NewServer(cfg Config) (*Server, error) {
 		}).Info("USPTO lookup enabled")
 	}
 
+	// Initialize embedding client for AI learning
+	var embeddingClient *ai.EmbeddingClient
+	if !cfg.DisableAI && strings.TrimSpace(cfg.AIConfig.APIKey) != "" {
+		embCfg := ai.EmbeddingConfig{
+			APIKey:  cfg.AIConfig.APIKey,
+			BaseURL: cfg.AIConfig.BaseURL,
+		}
+		if client, err := ai.NewEmbeddingClient(embCfg); err == nil {
+			embeddingClient = client
+			logrus.Info("embedding client enabled for AI learning")
+		} else {
+			logrus.WithError(err).Warn("embedding client initialization failed")
+		}
+	}
+
 	server := &Server{
 		db:              db,
 		seedPath:        seedPath,
@@ -150,12 +167,22 @@ func NewServer(cfg Config) (*Server, error) {
 		fancifulDecider: decider,
 		allowedOrigins:  cfg.AllowedOrigins,
 		explainer:       explainer,
+		embeddingClient: embeddingClient,
 		usptoClient:     usptoClient,
 		evalNotifier:    NewEvaluationNotifier(),
 		commercial:      commercial.NewService(db),
 		popularLimit:    cfg.PopularLimit,
 		popularMinCount: cfg.PopularMinCount,
 		marksLimit:      cfg.MarksLimit,
+	}
+
+	// Initialize feedback retriever if embedding client is available
+	if embeddingClient != nil {
+		server.feedbackRetriever = ai.NewFeedbackRetriever(embeddingClient, db, ai.FeedbackRetrieverConfig{
+			TopK:          3,
+			MinSimilarity: 0.75,
+		})
+		logrus.Info("feedback retriever enabled for AI learning")
 	}
 
 	if server.marksLimit <= 0 {
@@ -226,6 +253,14 @@ func (s *Server) Router() (*gin.Engine, error) {
 		api.GET("/results", s.handleResults)
 		api.GET("/export.csv", s.handleExportCSV)
 		api.GET("/export.json", s.handleExportJSON)
+		api.GET("/stats", s.handleStats)
+
+		// Override and feedback routes
+		api.POST("/evaluations/:id/override", s.handleCreateOverride)
+		api.GET("/evaluations/:id/history", s.handleGetEvaluationHistory)
+		api.GET("/overrides", s.handleListOverrides)
+		api.GET("/feedback", s.handleListFeedback)
+		api.GET("/feedback/stats", s.handleGetFeedbackStats)
 	}
 
 	return r, nil
@@ -1345,6 +1380,159 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// StatsResponse contains aggregated dashboard statistics.
+type StatsResponse struct {
+	TotalEvaluations      int64                    `json:"total_evaluations"`
+	TotalBatches          int64                    `json:"total_batches"`
+	RecommendationCounts  RecommendationStats      `json:"recommendation_counts"`
+	TrademarkDistribution []ScoreBucketDTO         `json:"trademark_distribution"`
+	ViceDistribution      []ScoreBucketDTO         `json:"vice_distribution"`
+	TopTrademarkRisks     []EvaluationDTO          `json:"top_trademark_risks"`
+	TopViceRisks          []EvaluationDTO          `json:"top_vice_risks"`
+	RecentBatches         []store.BatchSummary     `json:"recent_batches"`
+	AvgProcessingTimeMs   float64                  `json:"avg_processing_time_ms"`
+	EvaluationsOverTime   []store.TimeSeriesPoint  `json:"evaluations_over_time"`
+}
+
+// RecommendationStats holds counts per recommendation category.
+type RecommendationStats struct {
+	Block            int64 `json:"block"`
+	Review           int64 `json:"review"`
+	AllowWithCaution int64 `json:"allow_with_caution"`
+	Allow            int64 `json:"allow"`
+}
+
+// ScoreBucketDTO holds a score and its count for API responses.
+type ScoreBucketDTO struct {
+	Score int   `json:"score"`
+	Count int64 `json:"count"`
+}
+
+func (s *Server) handleStats(c *gin.Context) {
+	// Parse optional batch_id filter
+	var batchID uint
+	if value := c.Query("batch_id"); value != "" {
+		parsed, err := strconv.ParseUint(value, 10, 64)
+		if err == nil {
+			batchID = uint(parsed)
+		}
+	}
+
+	// Get total evaluations
+	totalEvaluations, err := s.db.CountEvaluations(batchID)
+	if err != nil {
+		s.renderError(c, http.StatusInternalServerError, fmt.Errorf("count evaluations: %w", err))
+		return
+	}
+
+	// Get total batches
+	_, totalBatches, err := s.db.ListCSVBatches(0, 0)
+	if err != nil {
+		s.renderError(c, http.StatusInternalServerError, fmt.Errorf("count batches: %w", err))
+		return
+	}
+
+	// Get recommendation counts
+	recCounts, err := s.db.GetRecommendationCounts(batchID)
+	if err != nil {
+		s.renderError(c, http.StatusInternalServerError, fmt.Errorf("recommendation counts: %w", err))
+		return
+	}
+
+	// Get trademark score distribution
+	trademarkDist, err := s.db.GetTrademarkScoreDistribution(batchID)
+	if err != nil {
+		s.renderError(c, http.StatusInternalServerError, fmt.Errorf("trademark distribution: %w", err))
+		return
+	}
+
+	// Get vice score distribution
+	viceDist, err := s.db.GetViceScoreDistribution(batchID)
+	if err != nil {
+		s.renderError(c, http.StatusInternalServerError, fmt.Errorf("vice distribution: %w", err))
+		return
+	}
+
+	// Get top trademark risks
+	topTrademark, err := s.db.GetTopRisksByTrademark(batchID, 5)
+	if err != nil {
+		s.renderError(c, http.StatusInternalServerError, fmt.Errorf("top trademark risks: %w", err))
+		return
+	}
+
+	// Get top vice risks
+	topVice, err := s.db.GetTopRisksByVice(batchID, 5)
+	if err != nil {
+		s.renderError(c, http.StatusInternalServerError, fmt.Errorf("top vice risks: %w", err))
+		return
+	}
+
+	// Get batch summaries
+	batchSummaries, err := s.db.GetBatchSummaries(10)
+	if err != nil {
+		s.renderError(c, http.StatusInternalServerError, fmt.Errorf("batch summaries: %w", err))
+		return
+	}
+
+	// Get average processing time
+	avgTime, err := s.db.GetAverageProcessingTime(batchID)
+	if err != nil {
+		s.renderError(c, http.StatusInternalServerError, fmt.Errorf("avg processing time: %w", err))
+		return
+	}
+
+	// Get evaluations over time
+	evalsOverTime, err := s.db.GetEvaluationsOverTime(batchID, 30)
+	if err != nil {
+		s.renderError(c, http.StatusInternalServerError, fmt.Errorf("evaluations over time: %w", err))
+		return
+	}
+
+	// Convert trademark distribution to DTO
+	trademarkDistDTO := make([]ScoreBucketDTO, len(trademarkDist))
+	for i, bucket := range trademarkDist {
+		trademarkDistDTO[i] = ScoreBucketDTO{Score: bucket.Score, Count: bucket.Count}
+	}
+
+	// Convert vice distribution to DTO
+	viceDistDTO := make([]ScoreBucketDTO, len(viceDist))
+	for i, bucket := range viceDist {
+		viceDistDTO[i] = ScoreBucketDTO{Score: bucket.Score, Count: bucket.Count}
+	}
+
+	// Convert top trademark risks to DTO
+	topTrademarkDTO := make([]EvaluationDTO, len(topTrademark))
+	for i, eval := range topTrademark {
+		topTrademarkDTO[i] = FromModel(eval)
+	}
+
+	// Convert top vice risks to DTO
+	topViceDTO := make([]EvaluationDTO, len(topVice))
+	for i, eval := range topVice {
+		topViceDTO[i] = FromModel(eval)
+	}
+
+	response := StatsResponse{
+		TotalEvaluations: totalEvaluations,
+		TotalBatches:     totalBatches,
+		RecommendationCounts: RecommendationStats{
+			Block:            recCounts["BLOCK"],
+			Review:           recCounts["REVIEW"],
+			AllowWithCaution: recCounts["ALLOW_WITH_CAUTION"],
+			Allow:            recCounts["ALLOW"],
+		},
+		TrademarkDistribution: trademarkDistDTO,
+		ViceDistribution:      viceDistDTO,
+		TopTrademarkRisks:     topTrademarkDTO,
+		TopViceRisks:          topViceDTO,
+		RecentBatches:         batchSummaries,
+		AvgProcessingTimeMs:   avgTime,
+		EvaluationsOverTime:   evalsOverTime,
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 func (s *Server) listTLDs(limit int) ([]string, int64, bool, error) {

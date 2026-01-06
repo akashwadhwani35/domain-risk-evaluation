@@ -4,6 +4,9 @@ import { isAxiosError } from 'axios';
 import UploadPane from './components/UploadPane';
 import ResultsTable from './components/ResultsTable';
 import CsvExplorer from './components/CsvExplorer';
+import Dashboard from './components/Dashboard';
+import OverrideModal from './components/OverrideModal';
+import AILearningDashboard from './components/AILearningDashboard';
 import {
   buildWebSocketURL,
   cancelEvaluation,
@@ -43,6 +46,10 @@ type EvaluateOptions = {
   resume?: boolean;
   force?: boolean;
 };
+
+type ViewMode = 'dashboard' | 'results' | 'ai_learning';
+
+type SidebarState = 'expanded' | 'collapsed';
 
 const normalizeSort = (sort?: string) => (sort && sort.trim() !== '' ? sort : DEFAULT_SORT);
 
@@ -145,6 +152,9 @@ export default function App() {
   const [explorerOpen, setExplorerOpen] = useState(false);
   const [liveEvaluations, setLiveEvaluations] = useState<EvaluationDTO[]>([]);
   const [evaluationMessage, setEvaluationMessage] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>('dashboard');
+  const [sidebarState, setSidebarState] = useState<SidebarState>('expanded');
+  const [selectedEvaluation, setSelectedEvaluation] = useState<EvaluationDTO | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
   const filtersRef = useRef(filters);
@@ -465,6 +475,19 @@ export default function App() {
     [selectedBatch?.id]
   );
 
+  const handleRowClick = useCallback((evaluation: EvaluationDTO) => {
+    setSelectedEvaluation(evaluation);
+  }, []);
+
+  const handleOverrideCreated = useCallback(() => {
+    setSelectedEvaluation(null);
+    // Refresh results to show the updated evaluation
+    const reload = loadResultsRef.current;
+    if (reload) {
+      reload().catch((err) => console.error(err));
+    }
+  }, []);
+
   useEffect(() => {
     filtersRef.current = filters;
   }, [filters]);
@@ -507,10 +530,10 @@ export default function App() {
 
   const summaryItems = useMemo(
     () => [
-      { label: 'Block', value: summaryCounts.BLOCK, accent: 'bg-red-500/20 text-red-200' },
-      { label: 'Review', value: summaryCounts.REVIEW, accent: 'bg-sky-500/20 text-sky-200' },
-      { label: 'Caution', value: summaryCounts.ALLOW_WITH_CAUTION, accent: 'bg-amber-500/20 text-amber-200' },
-      { label: 'Allow', value: summaryCounts.ALLOW, accent: 'bg-emerald-500/20 text-emerald-200' },
+      { label: 'Block', value: summaryCounts.BLOCK, accent: 'bg-[#ffe9e4] text-[#8f2f1d]' },
+      { label: 'Review', value: summaryCounts.REVIEW, accent: 'bg-[#e7f0ff] text-[#1e4fbf]' },
+      { label: 'Caution', value: summaryCounts.ALLOW_WITH_CAUTION, accent: 'bg-[#fff4da] text-[#8a5a00]' },
+      { label: 'Allow', value: summaryCounts.ALLOW, accent: 'bg-[#e6f7ee] text-[#1f6b3d]' },
     ],
     [summaryCounts]
   );
@@ -521,7 +544,6 @@ export default function App() {
   }, [progress.processed, progress.total]);
 
   const liveSlice = useMemo(() => liveEvaluations.slice(0, 6), [liveEvaluations]);
-  const recentBatches = useMemo(() => batches.slice(0, 6), [batches]);
   const remainingForSelected = selectedBatch ? Math.max(selectedBatch.unique_domains - selectedBatch.processed_domains, 0) : 0;
   const progressNote = evaluationMessage ?? progress.message ?? '';
 
@@ -752,145 +774,127 @@ export default function App() {
 
   return (
     <>
-      <main className="min-h-screen bg-slate-950 text-slate-100">
-        <div className="mx-auto w-full max-w-[1280px] px-4 py-10 space-y-8">
-          <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold">Domain Risk Evaluation</h1>
-              <p className="text-sm text-slate-400">Score trademark and vice risk in bulk with AI explanations.</p>
+      <main className="min-h-screen text-[var(--text)]">
+        <div className="mx-auto w-full max-w-[1440px] px-6 py-8 space-y-6">
+          <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-4">
+              <button
+                type="button"
+                onClick={() => setSidebarState(sidebarState === 'expanded' ? 'collapsed' : 'expanded')}
+                className="rounded-lg border border-[var(--line)] p-2 text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--text)] transition-colors lg:hidden"
+                aria-label="Toggle sidebar"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+              <div>
+                <h1 className="text-2xl font-semibold">Domain Risk Evaluation</h1>
+                <p className="text-[var(--muted)]">Trademark and vice risk assessment</p>
+              </div>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-3">
+              {/* View Toggle */}
+              <div className="flex items-center rounded-lg border border-[var(--line)] p-1 bg-[var(--surface)]">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('dashboard')}
+                  className={clsx(
+                    'rounded-md px-4 py-2 text-sm font-medium transition-colors',
+                    viewMode === 'dashboard'
+                      ? 'bg-[var(--text)] text-white'
+                      : 'text-[var(--muted)] hover:text-[var(--text)]'
+                  )}
+                >
+                  Dashboard
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('results')}
+                  className={clsx(
+                    'rounded-md px-4 py-2 text-sm font-medium transition-colors',
+                    viewMode === 'results'
+                      ? 'bg-[var(--text)] text-white'
+                      : 'text-[var(--muted)] hover:text-[var(--text)]'
+                  )}
+                >
+                  Results
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('ai_learning')}
+                  className={clsx(
+                    'rounded-md px-4 py-2 text-sm font-medium transition-colors',
+                    viewMode === 'ai_learning'
+                      ? 'bg-[var(--text)] text-white'
+                      : 'text-[var(--muted)] hover:text-[var(--text)]'
+                  )}
+                >
+                  AI Learning
+                </button>
+              </div>
+
               <button
                 type="button"
                 onClick={handleBatchRefresh}
                 disabled={batchLoading}
                 className={clsx(
-                  'rounded-full border border-slate-700 px-4 py-1.5 text-sm text-slate-200 transition-colors',
-                  batchLoading ? 'cursor-not-allowed opacity-60' : 'hover:bg-slate-800'
+                  'rounded-lg border border-[var(--line)] px-4 py-2 text-sm font-medium',
+                  batchLoading ? 'cursor-not-allowed opacity-60 text-[var(--muted)]' : 'text-[var(--text)] hover:bg-[var(--surface-2)]'
                 )}
               >
-                Refresh data
+                Refresh
               </button>
               <button
                 type="button"
                 onClick={() => setExplorerOpen(true)}
-                className="rounded-full bg-slate-100 px-4 py-1.5 text-sm font-medium text-slate-900 hover:bg-white"
+                className="rounded-lg bg-[var(--text)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition-opacity"
               >
-                Browse CSVs
+                Browse Datasets
               </button>
             </div>
           </header>
 
-          <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
-            <aside className="space-y-6 lg:max-h-[calc(100vh-160px)] lg:overflow-y-auto lg:pr-3">
+          <div className={clsx(
+              'grid gap-6 transition-all duration-300',
+              sidebarState === 'expanded' ? 'lg:grid-cols-[300px_minmax(0,1fr)]' : 'lg:grid-cols-1'
+            )}>
+            <aside className={clsx(
+              'space-y-4 transition-all duration-300',
+              sidebarState === 'collapsed' && 'hidden lg:hidden'
+            )}>
               <UploadPane onProcess={handleProcess} onEvaluate={handleEvaluate} busy={busy || isEvaluating} />
 
-              <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
-                <h3 className="text-xs uppercase tracking-wide text-slate-500">This page</h3>
-                <div className="mt-4 grid grid-cols-2 gap-4 text-sm text-slate-100">
-                  {summaryItems.map((item) => (
-                    <div key={item.label} className={clsx('rounded-xl px-4 py-3', item.accent)}>
-                      <p className="text-xs uppercase tracking-wide text-slate-100/80">{item.label}</p>
-                      <p className="text-lg font-semibold leading-tight">{item.value.toLocaleString()}</p>
-                    </div>
-                  ))}
-                </div>
-              </section>
-
-              {progress.status !== 'idle' && (
-                <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-xs uppercase tracking-wide text-slate-500">Evaluation</p>
-                      <p className="text-sm font-medium text-slate-100">
-                        {progress.processed.toLocaleString()} / {progress.total.toLocaleString()} processed
-                      </p>
-                    </div>
-                    <span className="text-xs text-slate-400">{progress.status}</span>
-                  </div>
-                  <div className="h-2 w-full rounded-full bg-slate-800">
-                    <div
-                      className="h-full rounded-full bg-slate-100 transition-all"
-                      style={{ width: `${progressPercent}%` }}
-                    />
-                  </div>
-                  {progressNote && <p className="text-xs text-slate-400">{progressNote}</p>}
-                  {liveNotice && page > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPage(0);
-                        setLiveNotice(false);
-                        const reload = loadResultsRef.current;
-                        if (reload) {
-                          reload().catch((err) => console.error(err));
-                        }
-                      }}
-                      className="text-xs font-medium text-slate-200 hover:text-white"
-                    >
-                      Jump to newest results
-                    </button>
-                  )}
-                  <div className="flex flex-wrap gap-2 text-xs">
-                    {(progress.status === 'running' || progress.status === 'cancelling') && (
-                      <button
-                        type="button"
-                        onClick={handleCancel}
-                        disabled={cancelling}
-                        className={clsx(
-                          'rounded-full border border-red-500/60 px-3 py-1 text-red-200',
-                          cancelling ? 'cursor-not-allowed opacity-60' : 'hover:bg-red-500/10'
-                        )}
-                      >
-                        {cancelling ? 'Cancelling…' : 'Stop evaluation'}
-                      </button>
-                    )}
-                    {progress.status !== 'running' && progress.status !== 'cancelling' && progress.total > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void handleResume();
-                        }}
-                        disabled={busy}
-                        className={clsx(
-                          'rounded-full border border-slate-700 px-3 py-1 text-slate-200',
-                          busy ? 'cursor-not-allowed opacity-60' : 'hover:bg-slate-800'
-                        )}
-                      >
-                        Resume evaluation
-                      </button>
-                    )}
-                  </div>
-                </section>
-              )}
-
-              <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 space-y-2">
+              <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-xs uppercase tracking-wide text-slate-500">Selected dataset</h3>
+                  <h3 className="font-semibold text-[var(--text)]">Active Batch</h3>
                   <button
                     type="button"
                     onClick={() => setExplorerOpen(true)}
-                    className="text-xs text-slate-300 hover:text-white"
+                    className="text-sm text-[var(--muted)] hover:text-[var(--text)]"
                   >
-                    Manage
+                    Switch
                   </button>
                 </div>
                 {selectedBatch ? (
-                  <div className="space-y-2 text-sm text-slate-300">
-                    <p className="font-medium text-slate-100 break-words">{selectedBatch.name}</p>
-                    <p className="text-xs text-slate-500">
-                      Owner: {selectedBatch.owner} • {new Date(selectedBatch.created_at).toLocaleDateString()}
-                    </p>
-                    <p className="text-xs text-slate-400">
-                      {selectedBatch.processed_domains.toLocaleString()} processed • {remainingForSelected.toLocaleString()} remaining
-                    </p>
-                    <div className="flex flex-wrap gap-2 text-xs">
+                  <div className="mt-3 space-y-3 text-[var(--text)]">
+                    <div>
+                      <p className="font-semibold break-words">{selectedBatch.name}</p>
+                      <p className="text-sm text-[var(--muted)]">
+                        {selectedBatch.owner} · {new Date(selectedBatch.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-between text-sm text-[var(--muted)]">
+                      <span>{selectedBatch.processed_domains.toLocaleString()} processed</span>
+                      <span>{remainingForSelected.toLocaleString()} remaining</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
                         onClick={() => {
                           void handleEvaluate({ resume: true });
                         }}
-                        className="rounded-full border border-slate-700 px-3 py-1 text-slate-200 hover:bg-slate-800"
+                        className="rounded-lg bg-[var(--text)] px-4 py-2 text-sm font-medium text-white hover:opacity-90"
                       >
                         Resume
                       </button>
@@ -899,120 +903,164 @@ export default function App() {
                         onClick={() => {
                           void handleEvaluate({ force: true, batchId: selectedBatch.id });
                         }}
-                        className="rounded-full border border-slate-700 px-3 py-1 text-slate-200 hover:bg-slate-800"
+                        className="rounded-lg border border-[var(--line)] px-4 py-2 text-sm font-medium text-[var(--text)] hover:bg-[var(--surface-2)]"
                       >
-                        Force re-run
+                        Force Re-run
                       </button>
                     </div>
                   </div>
                 ) : (
-                  <p className="text-xs text-slate-400">No dataset selected. Upload a CSV or open the explorer.</p>
+                  <p className="mt-3 text-sm text-[var(--muted)]">No dataset selected. Upload or browse a batch.</p>
                 )}
               </section>
 
-              <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
+              <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5 space-y-3">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-xs uppercase tracking-wide text-slate-500">Live stream</h3>
-                  {liveSlice.length > 0 && (
+                  <h3 className="font-semibold text-[var(--text)]">Evaluation Status</h3>
+                  <span className={clsx(
+                    'text-sm font-medium px-2 py-0.5 rounded',
+                    progress.status === 'running' && 'bg-blue-100 text-blue-700',
+                    progress.status === 'complete' && 'bg-green-100 text-green-700',
+                    progress.status === 'error' && 'bg-red-100 text-red-700',
+                    progress.status === 'idle' && 'bg-gray-100 text-gray-600'
+                  )}>{progress.status}</span>
+                </div>
+                <div className="text-[var(--text)]">
+                  {progress.processed.toLocaleString()} / {progress.total.toLocaleString()} processed
+                </div>
+                <div className="h-2 w-full rounded-full bg-[var(--surface-2)]">
+                  <div
+                    className="h-full rounded-full bg-[var(--accent)] transition-all"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
+                {progressNote && <p className="text-sm text-[var(--muted)]">{progressNote}</p>}
+                {liveNotice && page > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPage(0);
+                      setLiveNotice(false);
+                      const reload = loadResultsRef.current;
+                      if (reload) {
+                        reload().catch((err) => console.error(err));
+                      }
+                    }}
+                    className="text-sm font-medium text-[var(--accent)]"
+                  >
+                    Jump to newest results
+                  </button>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  {(progress.status === 'running' || progress.status === 'cancelling') && (
                     <button
                       type="button"
-                      onClick={() => setLiveEvaluations([])}
-                      className="text-xs text-slate-300 hover:text-white"
+                      onClick={handleCancel}
+                      disabled={cancelling}
+                      className={clsx(
+                        'rounded-lg border px-3 py-2 text-sm font-medium',
+                        cancelling
+                          ? 'cursor-not-allowed border-gray-200 text-gray-400'
+                          : 'border-red-200 text-red-600 hover:bg-red-50'
+                      )}
                     >
-                      Clear
+                      {cancelling ? 'Cancelling…' : 'Stop'}
+                    </button>
+                  )}
+                  {progress.status !== 'running' && progress.status !== 'cancelling' && progress.total > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void handleResume();
+                      }}
+                      disabled={busy}
+                      className={clsx(
+                        'rounded-lg border px-3 py-2 text-sm font-medium',
+                        busy
+                          ? 'cursor-not-allowed border-[var(--line)] text-[var(--muted)]'
+                          : 'border-[var(--line)] text-[var(--text)] hover:bg-[var(--surface-2)]'
+                      )}
+                    >
+                      Resume
                     </button>
                   )}
                 </div>
-                {liveSlice.length === 0 ? (
-                  <p className="text-xs text-slate-400">Start or resume a batch to watch AI decisions arrive in real time.</p>
-                ) : (
-                  <ul className="space-y-2 text-xs">
-                    {liveSlice.map((item) => (
-                      <li key={item.id} className="rounded-xl border border-slate-800 bg-slate-900/70 px-3 py-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-slate-100 break-all">{item.domain}</span>
-                          <span className="rounded-full border border-slate-700 px-2 py-0.5 text-[11px] uppercase text-slate-300">
-                            {item.overall_recommendation}
-                          </span>
-                        </div>
-                        <p className="mt-1 text-[11px] text-slate-400 break-words">{item.explanation || '—'}</p>
-                      </li>
-                    ))}
-                  </ul>
-                )}
               </section>
 
-              <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-xs uppercase tracking-wide text-slate-500">Recent batches</h3>
-                  <button
-                    type="button"
-                    onClick={handleBatchRefresh}
-                    disabled={batchLoading}
-                    className={clsx(
-                      'text-xs text-slate-300 hover:text-white',
-                      batchLoading && 'cursor-not-allowed opacity-60'
-                    )}
-                  >
-                    Refresh
-                  </button>
+              <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
+                <h3 className="font-semibold text-[var(--text)]">Page Summary</h3>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  {summaryItems.map((item) => (
+                    <div key={item.label} className={clsx('rounded-lg px-3 py-2', item.accent)}>
+                      <p className="text-sm font-medium">{item.label}</p>
+                      <p className="text-xl font-bold">{item.value.toLocaleString()}</p>
+                    </div>
+                  ))}
                 </div>
-                {recentBatches.length === 0 ? (
-                  <p className="text-xs text-slate-400">No uploads yet.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {recentBatches.map((batch) => {
-                      const isSelected = batch.id === selectedBatch?.id;
-                      const remaining = Math.max(batch.unique_domains - batch.processed_domains, 0);
-                      return (
-                        <button
-                          key={batch.id}
-                          type="button"
-                          onClick={() => handleSelectBatch(batch)}
-                          className={clsx(
-                            'w-full rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 text-left text-xs transition-colors hover:border-slate-600 hover:bg-slate-900',
-                            isSelected && 'border-slate-200'
-                          )}
-                        >
-                          <div className="flex items-center justify-between text-slate-200">
-                            <span className="break-words">{batch.name}</span>
-                            <span className="text-slate-500">{new Date(batch.created_at).toLocaleDateString()}</span>
-                          </div>
-                          <div className="mt-1 flex justify-between text-[11px] text-slate-400">
-                            <span>
-                              {batch.processed_domains.toLocaleString()} / {batch.unique_domains.toLocaleString()} done
-                            </span>
-                            <span>{remaining.toLocaleString()} left</span>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
               </section>
             </aside>
 
-            <div className="space-y-6 lg:max-h-[calc(100vh-160px)] lg:overflow-y-auto lg:pr-1">
-              <ResultsTable
-                data={evaluations}
-                total={total}
-                loading={loading || busy || (isEvaluating && evaluations.length === 0)}
-                page={page}
-                pageSize={PAGE_SIZE}
-                onPageChange={handlePageChange}
-                onQueryChange={handleQueryChange}
-                onExport={handleExport}
-                tldOptions={tldOptions}
-                filters={{
-                  q: filterQuery,
-                  minScore: filterMinScore,
-                  minViceScore: filterMinViceScore,
-                  tld: filterTld,
-                  recommendation: filterRecommendation,
-                  sort: filterSort,
-                }}
-                batchName={selectedBatch?.name}
-              />
+            <div className="space-y-6">
+              {viewMode === 'dashboard' ? (
+                <Dashboard
+                  selectedBatch={selectedBatch}
+                  onSelectBatch={handleSelectBatch}
+                />
+              ) : viewMode === 'ai_learning' ? (
+                <AILearningDashboard batchId={selectedBatch?.id} />
+              ) : (
+                <>
+                  <ResultsTable
+                    data={evaluations}
+                    total={total}
+                    loading={loading || busy || (isEvaluating && evaluations.length === 0)}
+                    page={page}
+                    pageSize={PAGE_SIZE}
+                    onPageChange={handlePageChange}
+                    onQueryChange={handleQueryChange}
+                    onExport={handleExport}
+                    tldOptions={tldOptions}
+                    filters={{
+                      q: filterQuery,
+                      minScore: filterMinScore,
+                      minViceScore: filterMinViceScore,
+                      tld: filterTld,
+                      recommendation: filterRecommendation,
+                      sort: filterSort,
+                    }}
+                    batchName={selectedBatch?.name}
+                    onRowClick={handleRowClick}
+                  />
+
+                  {liveSlice.length > 0 && (
+                    <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h3 className="font-semibold text-[var(--text)]">Live Decisions</h3>
+                        <button
+                          type="button"
+                          onClick={() => setLiveEvaluations([])}
+                          className="text-sm text-[var(--muted)] hover:text-[var(--text)]"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                      <ul className="space-y-2">
+                        {liveSlice.map((item) => (
+                          <li key={item.id} className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-4 py-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-medium text-[var(--text)] break-all">{item.domain}</span>
+                              <span className="rounded-md border border-[var(--line)] px-2 py-1 text-sm text-[var(--muted)]">
+                                {item.overall_recommendation}
+                              </span>
+                            </div>
+                            <p className="mt-2 text-sm text-[var(--muted)] break-words line-clamp-2">{item.explanation || '—'}</p>
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -1025,6 +1073,14 @@ export default function App() {
         onSelect={handleSelectBatch}
         onClose={() => setExplorerOpen(false)}
       />
+
+      {selectedEvaluation && (
+        <OverrideModal
+          evaluation={selectedEvaluation}
+          onClose={() => setSelectedEvaluation(null)}
+          onOverrideCreated={handleOverrideCreated}
+        />
+      )}
     </>
   );
 }

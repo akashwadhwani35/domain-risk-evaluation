@@ -832,6 +832,11 @@ func (s *Server) evaluateDomain(
 	return result
 }
 
+type decisionResult struct {
+	Decision    ai.Decision
+	FeedbackIDs []uint
+}
+
 func (s *Server) generateDecision(
 	ctx context.Context,
 	profile match.DomainProfile,
@@ -860,6 +865,28 @@ func (s *Server) generateDecision(
 	tokens := collectDomainTokens(profile)
 	viceTerms := append([]string{}, viceResult.Categories...)
 
+	// Retrieve similar feedback for AI learning
+	var feedbackContext string
+	if s.feedbackRetriever != nil && s.feedbackRetriever.Enabled() {
+		feedbackResults, err := s.feedbackRetriever.RetrieveSimilar(
+			ctx,
+			domain,
+			secondLevel,
+			trademarkResult.Score,
+			viceResult.Score,
+			overall.Recommendation,
+		)
+		if err != nil {
+			logrus.WithError(err).WithField("domain", domain).Warn("feedback retrieval failed")
+		} else if len(feedbackResults) > 0 {
+			feedbackContext = ai.FormatFeedbackForPrompt(feedbackResults)
+			logrus.WithFields(logrus.Fields{
+				"domain":         domain,
+				"feedback_count": len(feedbackResults),
+			}).Debug("retrieved feedback for AI learning")
+		}
+	}
+
 	input := ai.ExplanationInput{
 		Domain:               domain,
 		Trademark:            trademarkResult,
@@ -883,6 +910,7 @@ func (s *Server) generateDecision(
 		CommercialSource:     commercialSource,
 		CommercialSimilarity: commercialSimilarity,
 		CommercialPrice:      commercialPrice,
+		FeedbackContext:      feedbackContext,
 	}
 
 	result, err := s.callAIWithRetry(ctx, input)

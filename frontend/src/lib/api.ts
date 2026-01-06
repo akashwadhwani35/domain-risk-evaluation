@@ -10,7 +10,14 @@ import type {
   EvaluationStatusResponse,
   BatchesResponse,
   BatchDTO,
-  BatchRequestDTO
+  BatchRequestDTO,
+  StatsResponse,
+  OverrideRequest,
+  OverrideDTO,
+  OverrideHistoryResponse,
+  OverridesResponse,
+  FeedbacksResponse,
+  FeedbackStatsResponse
 } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:2000/api';
@@ -107,5 +114,51 @@ export function buildWebSocketURL(path: string) {
 
 export async function fetchEvaluationStatus(): Promise<EvaluationStatusResponse> {
   const response = await client.get<EvaluationStatusResponse>('/evaluate/status');
+  return response.data;
+}
+
+export async function fetchStats(batchId?: number): Promise<StatsResponse> {
+  const params: Record<string, unknown> = {};
+  if (batchId !== undefined) {
+    params.batch_id = batchId;
+  }
+  const response = await client.get<StatsResponse>('/stats', { params });
+  return response.data;
+}
+
+// Override API functions
+export async function createOverride(evaluationId: number, request: OverrideRequest): Promise<OverrideDTO> {
+  const response = await client.post<OverrideDTO>(`/evaluations/${evaluationId}/override`, request);
+  return response.data;
+}
+
+export async function fetchEvaluationHistory(evaluationId: number): Promise<OverrideHistoryResponse> {
+  const response = await client.get<OverrideHistoryResponse>(`/evaluations/${evaluationId}/history`);
+  return response.data;
+}
+
+export async function fetchOverrides(page = 0, pageSize = 25, user?: string): Promise<OverridesResponse> {
+  const params: Record<string, unknown> = { page, pageSize };
+  if (user) {
+    params.user = user;
+  }
+  const response = await client.get<OverridesResponse>('/overrides', { params });
+  return response.data;
+}
+
+// Feedback API functions
+export async function fetchFeedback(page = 0, pageSize = 25): Promise<FeedbacksResponse> {
+  const response = await client.get<FeedbacksResponse>('/feedback', {
+    params: { page, pageSize }
+  });
+  return response.data;
+}
+
+export async function fetchFeedbackStats(batchId?: number): Promise<FeedbackStatsResponse> {
+  const params: Record<string, unknown> = {};
+  if (batchId !== undefined) {
+    params.batch_id = batchId;
+  }
+  const response = await client.get<FeedbackStatsResponse>('/feedback/stats', { params });
   return response.data;
 }
