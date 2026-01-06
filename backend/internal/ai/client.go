@@ -89,7 +89,7 @@ func (e *invalidJSONError) Unwrap() error {
 func NewClient(cfg Config) (*Client, error) {
 	cfg.Model = strings.TrimSpace(cfg.Model)
 	if cfg.Model == "" {
-		cfg.Model = "gpt-4.1-nano"
+		cfg.Model = "gpt-4.1-mini"
 	}
 	cfg.BaseURL = strings.TrimSpace(cfg.BaseURL)
 	if cfg.BaseURL == "" {
@@ -241,41 +241,33 @@ func (c *Client) buildPayload(input ExplanationInput) map[string]any {
 	messages := []map[string]string{
 		{
 			"role":    "system",
-			"content": `You are a smart domain risk analyst. Think step-by-step before deciding.
+			"content": `You are a domain risk analyst. You're smart - read the domain carefully and use your judgment.
 
-OUTPUT JSON with these fields:
+Ask yourself: "Is someone trying to exploit a famous company's brand?" Trust your instincts.
+
+YES_RISK - Domain contains or impersonates a famous company:
+- google*, youtube*, microsoft*, amazon*, facebook*, netflix*, nike*, apple* (prefix), etc.
+- Examples: googlemaps, youtubetv, netflixparty, nikeshoes → clearly exploiting brands
+- Also: drugs/illegal content (fentanyl, xanax, meth, cocaine)
+
+NO_RISK - Everything else. Most domains are safe:
+- Generic terms: healthcareapi, documentai, bigquery, cloudrun, datastream
+- Common words: frontier, pioneer, pixel, nexus, echo, vision, vertex
+- Car models: 4runner, frontier, titan, camry, mustang (products, not company names)
+- Tech terms: api, cloud, data, ai, studio, platform, hub
+- Open source: kubernetes, istio, terraform, docker
+
+POTENTIAL_RISK - Extremely rare. Only genuinely ambiguous cases like "apple" alone.
+
+Use your brain. If it looks like a generic word or tech term, it's NO_RISK. If it's obviously trying to be Google or Nike or Netflix, it's YES_RISK.
+
+OUTPUT JSON:
 {
-  "word_type": "famous_brand" | "common_word" | "ambiguous" | "unknown",
-  "word_meaning": "Brief definition - what does this word mean in everyday usage?",
-  "is_invented_name": true/false - "Is this an invented/made-up name that ONLY refers to one company?",
-  "famous_brand_match": "Name of famous brand if applicable, or empty string",
+  "word_type": "contains_brand" | "famous_brand" | "common_word" | "generic_term",
+  "famous_brand_match": "Brand name if found, or empty",
   "decision": "YES_RISK" | "NO_RISK" | "POTENTIAL_RISK",
-  "explanation": "2-3 sentences explaining your reasoning. Be helpful to the user."
-}
-
-STEP 1 - CLASSIFY THE WORD:
-• famous_brand: Invented names that ONLY mean one company. Examples: microsoft, google, xerox, nike, adidas, ferrari, netflix, starbucks, mcdonalds, cocacola, pepsi, toyota, honda, bmw. These are made-up words or names so unique they only refer to the brand.
-• common_word: Regular English dictionary words anyone can use. Examples: pioneer (explorer), patriot (loyal citizen), ace (expert/card), spectrum (range), cyclone (storm), eagle (bird), phoenix (mythical bird), titan (giant), delta (triangle/change), crown (royal headwear), liberty (freedom), raptor (bird of prey). Even if trademarked, these are just normal words!
-• ambiguous: Common words that are ALSO super-famous brands. Examples: apple (fruit AND Apple Inc), amazon (river AND Amazon.com), shell (seashell AND Shell Oil), virgin (word AND Virgin Group), target (goal AND Target stores).
-• unknown: Unusual words you're not sure about.
-
-STEP 2 - DECIDE BASED ON CLASSIFICATION:
-• famous_brand → YES_RISK (clear infringement)
-• common_word → NO_RISK (just a regular word, not infringement)
-• ambiguous → POTENTIAL_RISK (needs human review)
-• unknown → POTENTIAL_RISK (needs human review)
-
-STEP 3 - VERIFY YOUR LOGIC:
-Before outputting, check: Does my decision MATCH my classification?
-- If word_type is "common_word" but decision is "YES_RISK" → WRONG, fix it
-- If word_type is "famous_brand" but decision is "NO_RISK" → WRONG, fix it
-
-STEP 4 - WRITE HELPFUL EXPLANATION:
-Explain WHY this word is/isn't a problem. Help the user understand.
-
-IMPORTANT: Just because a word appears in a trademark database does NOT make it risky. Millions of common words are trademarked. Only FAMOUS INVENTED brand names are actual risks.
-
-For vice/dangerous content (drugs, illegal, fraud, malware): Always YES_RISK regardless of word type.`,
+  "explanation": "1-2 sentences"
+}`,
 		},
 		{
 			"role":    "user",
@@ -408,12 +400,12 @@ func sanitizeDecision(decision *Decision) {
 	default:
 		// Use word_type to infer decision if missing
 		switch decision.WordType {
-		case "famous_brand":
+		case "famous_brand", "contains_brand":
 			finalDecision = "YES_RISK"
-		case "common_word":
+		case "common_word", "generic_term":
 			finalDecision = "NO_RISK"
 		default:
-			finalDecision = "POTENTIAL_RISK"
+			finalDecision = "NO_RISK" // Default to NO_RISK - be practical
 		}
 	}
 
