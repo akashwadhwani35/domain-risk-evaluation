@@ -1,0 +1,220 @@
+import { useCallback, useEffect, useState } from 'react';
+import clsx from 'clsx';
+import { fetchResults, createOverride, mapEvaluation } from '../lib/api';
+import type { EvaluationDTO, OverrideRequest } from '../types';
+
+interface EvaluationsQueueProps {
+  batchId?: number;
+  onOverrideCreated?: () => void;
+}
+
+const PAGE_SIZE = 50;
+
+export default function EvaluationsQueue({ batchId, onOverrideCreated }: EvaluationsQueueProps) {
+  const [evaluations, setEvaluations] = useState<EvaluationDTO[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [processingId, setProcessingId] = useState<number | null>(null);
+
+  const loadEvaluations = useCallback(async () => {
+    setLoading(true);
+    try {
+      // Fetch only POTENTIAL_RISK (Maybe) evaluations
+      const response = await fetchResults({
+        recommendation: 'POTENTIAL_RISK',
+        sort: 'created_desc',
+        page,
+        pageSize: PAGE_SIZE,
+        batchId
+      });
+      const mapped = response.items.map(mapEvaluation);
+      setEvaluations(mapped);
+      setTotal(response.total);
+    } catch (err) {
+      console.error('Failed to load evaluations', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [page, batchId]);
+
+  useEffect(() => {
+    loadEvaluations();
+  }, [loadEvaluations]);
+
+  const handleQuickFlip = async (evaluation: EvaluationDTO, decision: 'YES_RISK' | 'NO_RISK') => {
+    setProcessingId(evaluation.id);
+
+    const reason = decision === 'YES_RISK'
+      ? 'Confirmed as trademark risk'
+      : 'Confirmed as safe - common word';
+
+    const explanation = decision === 'YES_RISK'
+      ? `This domain contains a famous brand name that should be blocked.`
+      : `This is a common English word, not a trademark risk.`;
+
+    const request: OverrideRequest = {
+      overridden_by: 'Quick Review',
+      reason,
+      override_recommendation: decision,
+      override_explanation: explanation
+    };
+
+    try {
+      await createOverride(evaluation.id, request);
+      // Remove from list after successful override
+      setEvaluations(prev => prev.filter(e => e.id !== evaluation.id));
+      setTotal(prev => Math.max(0, prev - 1));
+      onOverrideCreated?.();
+    } catch (err) {
+      console.error('Failed to create override', err);
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  if (loading && evaluations.length === 0) {
+    return (
+      <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-12">
+        <div className="flex items-center justify-center gap-2 text-[var(--muted)]">
+          <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+          </svg>
+          Loading...
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-[var(--text)]">Review Queue</h2>
+          <p className="text-sm text-[var(--muted)]">
+            {total} domains need your decision
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => loadEvaluations()}
+          disabled={loading}
+          className="rounded-lg border border-[var(--line)] px-4 py-2 text-sm font-medium text-[var(--text)] hover:bg-[var(--surface-2)] disabled:opacity-50"
+        >
+          Refresh
+        </button>
+      </div>
+
+      {/* Empty state */}
+      {evaluations.length === 0 && !loading && (
+        <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-12 text-center">
+          <div className="text-4xl mb-4">🎉</div>
+          <h3 className="text-lg font-semibold text-[var(--text)] mb-2">All caught up!</h3>
+          <p className="text-[var(--muted)]">No domains need review right now.</p>
+        </div>
+      )}
+
+      {/* Evaluation cards */}
+      {evaluations.length > 0 && (
+        <div className="space-y-3">
+          {evaluations.map((evaluation) => {
+            const isProcessing = processingId === evaluation.id;
+            return (
+              <div
+                key={evaluation.id}
+                className={clsx(
+                  'rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5 transition-opacity',
+                  isProcessing && 'opacity-50'
+                )}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  {/* Domain info */}
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-[var(--text)] text-lg">{evaluation.domain}</h3>
+                    <p className="mt-2 text-sm text-[var(--muted)] leading-relaxed">
+                      {evaluation.explanation || 'No explanation available'}
+                    </p>
+                    {evaluation.matched_trademark && (
+                      <p className="mt-2 text-xs text-[var(--muted)]">
+                        Matched: <span className="text-[var(--text)]">{evaluation.matched_trademark}</span>
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Quick flip buttons */}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleQuickFlip(evaluation, 'YES_RISK')}
+                      disabled={isProcessing}
+                      className={clsx(
+                        'rounded-lg px-4 py-2.5 text-sm font-medium transition-all',
+                        'bg-red-100 text-red-700 hover:bg-red-200 active:bg-red-300',
+                        'disabled:opacity-50 disabled:cursor-not-allowed'
+                      )}
+                    >
+                      Yes Risk
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleQuickFlip(evaluation, 'NO_RISK')}
+                      disabled={isProcessing}
+                      className={clsx(
+                        'rounded-lg px-4 py-2.5 text-sm font-medium transition-all',
+                        'bg-green-100 text-green-700 hover:bg-green-200 active:bg-green-300',
+                        'disabled:opacity-50 disabled:cursor-not-allowed'
+                      )}
+                    >
+                      No Risk
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {total > PAGE_SIZE && (
+        <div className="flex items-center justify-between border-t border-[var(--line)] pt-4">
+          <span className="text-sm text-[var(--muted)]">
+            Page {page + 1} of {totalPages}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPage(Math.max(0, page - 1))}
+              disabled={page === 0 || loading}
+              className={clsx(
+                'rounded-lg px-4 py-2 text-sm font-medium',
+                page === 0 || loading
+                  ? 'cursor-not-allowed bg-[var(--surface-2)] text-[var(--muted)]'
+                  : 'bg-[var(--text)] text-white hover:opacity-90'
+              )}
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
+              disabled={page + 1 >= totalPages || loading}
+              className={clsx(
+                'rounded-lg px-4 py-2 text-sm font-medium',
+                page + 1 >= totalPages || loading
+                  ? 'cursor-not-allowed bg-[var(--surface-2)] text-[var(--muted)]'
+                  : 'bg-[var(--text)] text-white hover:opacity-90'
+              )}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

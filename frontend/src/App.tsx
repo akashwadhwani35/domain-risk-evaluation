@@ -7,6 +7,7 @@ import CsvExplorer from './components/CsvExplorer';
 import Dashboard from './components/Dashboard';
 import OverrideModal from './components/OverrideModal';
 import AILearningDashboard from './components/AILearningDashboard';
+import EvaluationsQueue from './components/EvaluationsQueue';
 import {
   buildWebSocketURL,
   cancelEvaluation,
@@ -45,7 +46,7 @@ type EvaluateOptions = {
   force?: boolean;
 };
 
-type ViewMode = 'dashboard' | 'results' | 'ai_learning';
+type ViewMode = 'dashboard' | 'evaluations' | 'results' | 'ai_learning';
 
 type SidebarState = 'expanded' | 'collapsed';
 
@@ -779,7 +780,7 @@ export default function App() {
                   type="button"
                   onClick={() => setViewMode('dashboard')}
                   className={clsx(
-                    'rounded-md px-4 py-2 text-sm font-medium transition-colors',
+                    'rounded-md px-3 py-2 text-sm font-medium transition-colors',
                     viewMode === 'dashboard'
                       ? 'bg-[var(--text)] text-white'
                       : 'text-[var(--muted)] hover:text-[var(--text)]'
@@ -789,9 +790,21 @@ export default function App() {
                 </button>
                 <button
                   type="button"
+                  onClick={() => setViewMode('evaluations')}
+                  className={clsx(
+                    'rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                    viewMode === 'evaluations'
+                      ? 'bg-[var(--text)] text-white'
+                      : 'text-[var(--muted)] hover:text-[var(--text)]'
+                  )}
+                >
+                  Evaluations
+                </button>
+                <button
+                  type="button"
                   onClick={() => setViewMode('results')}
                   className={clsx(
-                    'rounded-md px-4 py-2 text-sm font-medium transition-colors',
+                    'rounded-md px-3 py-2 text-sm font-medium transition-colors',
                     viewMode === 'results'
                       ? 'bg-[var(--text)] text-white'
                       : 'text-[var(--muted)] hover:text-[var(--text)]'
@@ -803,7 +816,7 @@ export default function App() {
                   type="button"
                   onClick={() => setViewMode('ai_learning')}
                   className={clsx(
-                    'rounded-md px-4 py-2 text-sm font-medium transition-colors',
+                    'rounded-md px-3 py-2 text-sm font-medium transition-colors',
                     viewMode === 'ai_learning'
                       ? 'bg-[var(--text)] text-white'
                       : 'text-[var(--muted)] hover:text-[var(--text)]'
@@ -984,6 +997,16 @@ export default function App() {
                 <Dashboard
                   selectedBatch={selectedBatch}
                   onSelectBatch={handleSelectBatch}
+                />
+              ) : viewMode === 'evaluations' ? (
+                <EvaluationsQueue
+                  batchId={selectedBatch?.id}
+                  onOverrideCreated={() => {
+                    const reload = loadResultsRef.current;
+                    if (reload) {
+                      reload().catch((err) => console.error(err));
+                    }
+                  }}
                 />
               ) : viewMode === 'ai_learning' ? (
                 <AILearningDashboard batchId={selectedBatch?.id} />
