@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import clsx from 'clsx';
 import dayjs from 'dayjs';
 import ScoreBadge from './ScoreBadge';
@@ -282,8 +282,8 @@ export default function ResultsTable({
               rows.map((row) => {
                 const isExpanded = expandedRows.has(row.id);
                 return (
-                  <tbody key={row.id} className="divide-y divide-[var(--line)]">
-                    <tr
+                  <Fragment key={row.id}>
+                  <tr
                       className={clsx(
                         'transition-colors',
                         isExpanded ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--surface-2)]',
@@ -380,7 +380,7 @@ export default function ResultsTable({
                         </td>
                       </tr>
                     )}
-                  </tbody>
+                  </Fragment>
                 );
               })
             )}

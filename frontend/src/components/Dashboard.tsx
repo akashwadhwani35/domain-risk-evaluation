@@ -237,7 +237,8 @@ function TopRisksPanel({ title, items, scoreKey }: TopRisksPanelProps) {
             </div>
             <ScoreBadge
               score={item[scoreKey]}
-              type={scoreKey === 'trademark_score' ? 'trademark' : 'vice'}
+              label={item[scoreKey]}
+              variant={scoreKey === 'trademark_score' ? 'trademark' : 'vice'}
             />
           </div>
         ))}
