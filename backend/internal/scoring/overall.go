@@ -8,26 +8,16 @@ type OverallResult struct {
 	Confidence     float64 `json:"confidence"`
 }
 
-// CombineRecommendation applies BRD matrix logic to produce overall recommendation.
+// CombineRecommendation provides a default recommendation.
+// The AI will make the final smart decision based on context.
+// This just provides a starting point.
 func CombineRecommendation(tr TrademarkResult, vice ViceResult) OverallResult {
-	rec := "ALLOW"
-	switch {
-	case vice.Score >= 4:
-		rec = "BLOCK"
-	case tr.Score >= 5:
-		rec = "BLOCK"
-	case tr.Score == 4:
-		rec = "BLOCK"
-	case vice.Score == 3:
-		rec = "REVIEW"
-	case tr.Score == 3:
-		rec = "REVIEW"
-	case tr.Score == 2:
-		rec = "REVIEW"
-	case vice.Score == 2:
-		rec = "ALLOW_WITH_CAUTION"
-	case vice.Score == 1 || tr.Score == 1:
-		rec = "ALLOW_WITH_CAUTION"
+	// Default to POTENTIAL_RISK - let AI decide
+	rec := "POTENTIAL_RISK"
+
+	// High vice score is always a problem
+	if vice.Score >= 4 {
+		rec = "YES_RISK"
 	}
 
 	confidence := vice.Confidence

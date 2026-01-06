@@ -27,8 +27,6 @@ const DEFAULT_SORT = 'created_desc';
 
 type FiltersState = {
   q?: string;
-  minScore?: number;
-  minViceScore?: number;
   tld?: string;
   recommendation?: string;
   sort?: string;
@@ -54,12 +52,6 @@ type SidebarState = 'expanded' | 'collapsed';
 const normalizeSort = (sort?: string) => (sort && sort.trim() !== '' ? sort : DEFAULT_SORT);
 
 const matchesFilters = (row: EvaluationDTO, filters: FiltersState) => {
-  if (typeof filters.minScore === 'number' && row.trademark_score < filters.minScore) {
-    return false;
-  }
-  if (typeof filters.minViceScore === 'number' && row.vice_score < filters.minViceScore) {
-    return false;
-  }
   if (filters.tld) {
     const tld = filters.tld.startsWith('.') ? filters.tld.toLowerCase() : `.${filters.tld.toLowerCase()}`;
     if (!row.domain.toLowerCase().endsWith(tld)) {
@@ -67,20 +59,39 @@ const matchesFilters = (row: EvaluationDTO, filters: FiltersState) => {
     }
   }
   if (filters.recommendation) {
-    if (row.overall_recommendation !== filters.recommendation.toUpperCase()) {
+    // Handle both old and new recommendation formats
+    const rowRec = normalizeRecommendation(row.overall_recommendation);
+    const filterRec = normalizeRecommendation(filters.recommendation);
+    if (rowRec !== filterRec) {
       return false;
     }
   }
   if (filters.q) {
     const query = filters.q.toLowerCase();
     const domainMatch = row.domain.toLowerCase().includes(query);
-    const mark = (row.matched_trademark ?? '').toLowerCase();
-    const markMatch = mark.includes(query);
-    if (!domainMatch && !markMatch) {
+    if (!domainMatch) {
       return false;
     }
   }
   return true;
+};
+
+// Helper to normalize legacy recommendations to new 3-tier format
+const normalizeRecommendation = (rec: string): string => {
+  switch (rec.toUpperCase()) {
+    case 'YES_RISK':
+    case 'BLOCK':
+      return 'YES_RISK';
+    case 'NO_RISK':
+    case 'ALLOW':
+      return 'NO_RISK';
+    case 'POTENTIAL_RISK':
+    case 'REVIEW':
+    case 'ALLOW_WITH_CAUTION':
+      return 'POTENTIAL_RISK';
+    default:
+      return 'POTENTIAL_RISK';
+  }
 };
 
 const sortEvaluations = (rows: EvaluationDTO[], sort?: string) => {
@@ -92,30 +103,6 @@ const sortEvaluations = (rows: EvaluationDTO[], sort?: string) => {
       break;
     case 'domain_desc':
       next.sort((a, b) => b.domain.localeCompare(a.domain));
-      break;
-    case 'trademark_desc':
-      next.sort((a, b) => {
-        if (b.trademark_score !== a.trademark_score) return b.trademark_score - a.trademark_score;
-        return b.vice_score - a.vice_score;
-      });
-      break;
-    case 'trademark_asc':
-      next.sort((a, b) => {
-        if (a.trademark_score !== b.trademark_score) return a.trademark_score - b.trademark_score;
-        return a.vice_score - b.vice_score;
-      });
-      break;
-    case 'vice_desc':
-      next.sort((a, b) => {
-        if (b.vice_score !== a.vice_score) return b.vice_score - a.vice_score;
-        return b.trademark_score - a.trademark_score;
-      });
-      break;
-    case 'vice_asc':
-      next.sort((a, b) => {
-        if (a.vice_score !== b.vice_score) return a.vice_score - b.vice_score;
-        return a.trademark_score - b.trademark_score;
-      });
       break;
     case 'created_asc':
       next.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
@@ -167,8 +154,6 @@ export default function App() {
   );
 
   const filterQuery = filters.q;
-  const filterMinScore = filters.minScore;
-  const filterMinViceScore = filters.minViceScore;
   const filterTld = filters.tld;
   const filterRecommendation = filters.recommendation;
   const filterSort = normalizeSort(filters.sort);
@@ -179,8 +164,6 @@ export default function App() {
       const batchId = selectedBatch?.id;
       const response = await fetchResults({
         q: filterQuery,
-        minScore: filterMinScore,
-        minViceScore: filterMinViceScore,
         tld: filterTld,
         recommendation: filterRecommendation,
         sort: filterSort,
@@ -196,7 +179,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [filterQuery, filterMinScore, filterMinViceScore, filterTld, filterRecommendation, filterSort, page, selectedBatch?.id]);
+  }, [filterQuery, filterTld, filterRecommendation, filterSort, page, selectedBatch?.id]);
 
   loadResultsRef.current = loadResults;
 
@@ -439,8 +422,6 @@ export default function App() {
   const handleQueryChange = useCallback(
     (query: {
       q?: string;
-      minScore?: number;
-      minViceScore?: number;
       tld?: string;
       recommendation?: string;
       sort?: string;
@@ -514,13 +495,12 @@ export default function App() {
 
   const summaryCounts = useMemo(() => {
     const base = {
-      BLOCK: 0,
-      REVIEW: 0,
-      ALLOW_WITH_CAUTION: 0,
-      ALLOW: 0,
+      YES_RISK: 0,
+      POTENTIAL_RISK: 0,
+      NO_RISK: 0,
     };
     evaluations.forEach((row) => {
-      const key = (row.overall_recommendation ?? '').toUpperCase();
+      const key = normalizeRecommendation(row.overall_recommendation ?? '');
       if (key in base) {
         base[key as keyof typeof base] += 1;
       }
@@ -530,10 +510,9 @@ export default function App() {
 
   const summaryItems = useMemo(
     () => [
-      { label: 'Block', value: summaryCounts.BLOCK, accent: 'bg-[#ffe9e4] text-[#8f2f1d]' },
-      { label: 'Review', value: summaryCounts.REVIEW, accent: 'bg-[#e7f0ff] text-[#1e4fbf]' },
-      { label: 'Caution', value: summaryCounts.ALLOW_WITH_CAUTION, accent: 'bg-[#fff4da] text-[#8a5a00]' },
-      { label: 'Allow', value: summaryCounts.ALLOW, accent: 'bg-[#e6f7ee] text-[#1f6b3d]' },
+      { label: 'Yes Risk', value: summaryCounts.YES_RISK, accent: 'bg-red-100 text-red-800' },
+      { label: 'Potential', value: summaryCounts.POTENTIAL_RISK, accent: 'bg-amber-100 text-amber-800' },
+      { label: 'No Risk', value: summaryCounts.NO_RISK, accent: 'bg-green-100 text-green-800' },
     ],
     [summaryCounts]
   );
@@ -989,11 +968,11 @@ export default function App() {
 
               <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
                 <h3 className="font-semibold text-[var(--text)]">Page Summary</h3>
-                <div className="mt-3 grid grid-cols-2 gap-2">
+                <div className="mt-3 grid grid-cols-3 gap-2">
                   {summaryItems.map((item) => (
-                    <div key={item.label} className={clsx('rounded-lg px-3 py-2', item.accent)}>
-                      <p className="text-sm font-medium">{item.label}</p>
-                      <p className="text-xl font-bold">{item.value.toLocaleString()}</p>
+                    <div key={item.label} className={clsx('rounded-lg px-3 py-2 text-center', item.accent)}>
+                      <p className="text-xs font-medium">{item.label}</p>
+                      <p className="text-lg font-bold">{item.value.toLocaleString()}</p>
                     </div>
                   ))}
                 </div>
@@ -1022,8 +1001,6 @@ export default function App() {
                     tldOptions={tldOptions}
                     filters={{
                       q: filterQuery,
-                      minScore: filterMinScore,
-                      minViceScore: filterMinViceScore,
                       tld: filterTld,
                       recommendation: filterRecommendation,
                       sort: filterSort,

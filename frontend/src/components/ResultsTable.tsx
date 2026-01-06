@@ -13,8 +13,6 @@ interface ResultsTableProps {
   onPageChange: (page: number) => void;
   onQueryChange: (query: {
     q?: string;
-    minScore?: number;
-    minViceScore?: number;
     tld?: string;
     recommendation?: string;
     sort?: string;
@@ -23,8 +21,6 @@ interface ResultsTableProps {
   tldOptions: string[];
   filters: {
     q?: string;
-    minScore?: number;
-    minViceScore?: number;
     tld?: string;
     recommendation?: string;
     sort?: string;
@@ -37,11 +33,14 @@ const SORT_OPTIONS = [
   { value: 'created_desc', label: 'Newest first' },
   { value: 'created_asc', label: 'Oldest first' },
   { value: 'domain_asc', label: 'Domain A–Z' },
-  { value: 'domain_desc', label: 'Domain Z–A' },
-  { value: 'trademark_desc', label: 'Trademark high → low' },
-  { value: 'trademark_asc', label: 'Trademark low → high' },
-  { value: 'vice_desc', label: 'Vice high → low' },
-  { value: 'vice_asc', label: 'Vice low → high' }
+  { value: 'domain_desc', label: 'Domain Z–A' }
+];
+
+const RECOMMENDATION_OPTIONS = [
+  { value: '', label: 'All decisions' },
+  { value: 'YES_RISK', label: 'Yes Risk' },
+  { value: 'POTENTIAL_RISK', label: 'Potential Risk' },
+  { value: 'NO_RISK', label: 'No Risk' }
 ];
 
 export default function ResultsTable({
@@ -59,8 +58,6 @@ export default function ResultsTable({
   onRowClick
 }: ResultsTableProps) {
   const [search, setSearch] = useState('');
-  const [minScore, setMinScore] = useState<number | undefined>(undefined);
-  const [minViceScore, setMinViceScore] = useState<number | undefined>(undefined);
   const [tld, setTld] = useState('');
   const [recommendation, setRecommendation] = useState<string | undefined>(undefined);
   const [sort, setSort] = useState<string>(filters.sort ?? 'created_desc');
@@ -87,27 +84,23 @@ export default function ResultsTable({
     const handle = window.setTimeout(() => {
       onQueryChange({
         q: search || undefined,
-        minScore,
-        minViceScore,
         tld: tld.trim() ? tld.trim() : undefined,
         recommendation,
         sort
       });
     }, 220);
     return () => window.clearTimeout(handle);
-  }, [search, minScore, minViceScore, tld, recommendation, sort, onQueryChange]);
+  }, [search, tld, recommendation, sort, onQueryChange]);
 
   useEffect(() => {
     setSearch(filters.q ?? '');
-    setMinScore(filters.minScore);
-    setMinViceScore(filters.minViceScore);
     setTld(filters.tld ?? '');
     setRecommendation(filters.recommendation);
     setSort(filters.sort ?? 'created_desc');
-  }, [filters.q, filters.minScore, filters.minViceScore, filters.tld, filters.recommendation, filters.sort]);
+  }, [filters.q, filters.tld, filters.recommendation, filters.sort]);
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / pageSize)), [total, pageSize]);
-  const hasActiveFilters = minScore !== undefined || minViceScore !== undefined || tld !== '' || recommendation !== undefined;
+  const hasActiveFilters = tld !== '' || recommendation !== undefined;
 
   return (
     <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)] overflow-hidden">
@@ -130,7 +123,7 @@ export default function ResultsTable({
               type="search"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search domain or trademark..."
+              placeholder="Search domain..."
               className="w-full rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-4 py-2.5 text-[var(--text)] placeholder:text-[var(--muted)] focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
             />
           </div>
@@ -142,11 +135,11 @@ export default function ResultsTable({
             }}
             className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-4 py-2.5 text-[var(--text)] focus:border-[var(--accent)] focus:outline-none"
           >
-            <option value="">All recommendations</option>
-            <option value="BLOCK">Block</option>
-            <option value="REVIEW">Review</option>
-            <option value="ALLOW_WITH_CAUTION">Allow with caution</option>
-            <option value="ALLOW">Allow</option>
+            {RECOMMENDATION_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
           </select>
           <select
             value={sort}
@@ -182,39 +175,6 @@ export default function ResultsTable({
           <div className="mt-4 p-4 bg-[var(--surface-2)] rounded-lg border border-[var(--line)]">
             <div className="flex flex-wrap gap-4 items-end">
               <div>
-                <label className="block text-sm font-medium text-[var(--muted)] mb-1">Min Trademark Score</label>
-                <select
-                  value={minScore ?? ''}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setMinScore(value === '' ? undefined : Number(value));
-                  }}
-                  className="rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-[var(--text)]"
-                >
-                  <option value="">Any</option>
-                  <option value="5">≥ 5</option>
-                  <option value="4">≥ 4</option>
-                  <option value="3">≥ 3</option>
-                  <option value="2">≥ 2</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-[var(--muted)] mb-1">Min Vice Score</label>
-                <select
-                  value={minViceScore ?? ''}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setMinViceScore(value === '' ? undefined : Number(value));
-                  }}
-                  className="rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-[var(--text)]"
-                >
-                  <option value="">Any</option>
-                  <option value="5">≥ 5</option>
-                  <option value="4">≥ 4</option>
-                  <option value="3">≥ 3</option>
-                </select>
-              </div>
-              <div>
                 <label className="block text-sm font-medium text-[var(--muted)] mb-1">TLD</label>
                 <select
                   value={tld}
@@ -232,8 +192,6 @@ export default function ResultsTable({
               <button
                 type="button"
                 onClick={() => {
-                  setMinScore(undefined);
-                  setMinViceScore(undefined);
                   setTld('');
                   setRecommendation(undefined);
                 }}
@@ -246,23 +204,21 @@ export default function ResultsTable({
         )}
       </div>
 
-      {/* Table - Simplified columns */}
+      {/* Table - Simplified: Domain, Decision, Explanation, Date */}
       <div className="overflow-x-auto">
         <table className="w-full text-left">
           <thead className="bg-[var(--surface-2)] text-sm text-[var(--muted)] border-b border-[var(--line)]">
             <tr>
               <th className="w-10 px-4 py-3"></th>
               <th className="px-4 py-3 font-medium">Domain</th>
-              <th className="px-4 py-3 font-medium text-center w-24">TM</th>
-              <th className="px-4 py-3 font-medium text-center w-24">Vice</th>
-              <th className="px-4 py-3 font-medium w-40">Decision</th>
+              <th className="px-4 py-3 font-medium w-36">Decision</th>
               <th className="px-4 py-3 font-medium text-right w-32">Date</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--line)]">
             {loading ? (
               <tr>
-                <td colSpan={6} className="px-4 py-12 text-center text-[var(--muted)]">
+                <td colSpan={4} className="px-4 py-12 text-center text-[var(--muted)]">
                   <div className="flex items-center justify-center gap-2">
                     <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
@@ -274,7 +230,7 @@ export default function ResultsTable({
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-12 text-center text-[var(--muted)]">
+                <td colSpan={4} className="px-4 py-12 text-center text-[var(--muted)]">
                   No results yet. Upload a CSV and run an evaluation.
                 </td>
               </tr>
@@ -317,14 +273,8 @@ export default function ResultsTable({
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-center">
-                        <ScoreBadge variant="trademark" score={row.trademark_score} label={row.trademark_score} />
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <ScoreBadge variant="vice" score={row.vice_score} label={row.vice_score} />
-                      </td>
                       <td className="px-4 py-3">
-                        <ScoreBadge variant="overall" label={row.overall_recommendation} />
+                        <ScoreBadge label={row.overall_recommendation} />
                       </td>
                       <td className="px-4 py-3 text-right text-sm text-[var(--muted)]">
                         {dayjs(row.created_at).format('MMM D, HH:mm')}
@@ -332,28 +282,30 @@ export default function ResultsTable({
                     </tr>
                     {isExpanded && (
                       <tr className="bg-[var(--surface-2)]">
-                        <td colSpan={6} className="px-4 py-4">
-                          <div className="grid gap-4 md:grid-cols-3">
-                            {/* Trademark Details */}
+                        <td colSpan={4} className="px-4 py-4">
+                          {/* AI Explanation - Main focus */}
+                          {row.explanation && (
                             <div className="bg-[var(--surface)] rounded-lg p-4 border border-[var(--line)]">
-                              <h4 className="font-medium text-[var(--text)] mb-2">Trademark Analysis</h4>
+                              <h4 className="font-medium text-[var(--text)] mb-2">AI Explanation</h4>
+                              <p className="text-sm text-[var(--text)] leading-relaxed">{row.explanation}</p>
+                            </div>
+                          )}
+
+                          {/* Additional Details (collapsed) */}
+                          <div className="mt-4 grid gap-4 md:grid-cols-2">
+                            {/* Word Analysis */}
+                            <div className="bg-[var(--surface)] rounded-lg p-4 border border-[var(--line)]">
+                              <h4 className="font-medium text-[var(--text)] mb-2">Analysis Details</h4>
                               <div className="space-y-1 text-sm">
-                                <p><span className="text-[var(--muted)]">Type:</span> <span className="text-[var(--text)]">{row.trademark_type || 'None'}</span></p>
-                                <p><span className="text-[var(--muted)]">Match:</span> <span className="text-[var(--text)]">{row.matched_trademark || '—'}</span></p>
-                                <p><span className="text-[var(--muted)]">Confidence:</span> <span className="text-[var(--text)]">{(row.trademark_confidence * 100).toFixed(0)}%</span></p>
+                                <p><span className="text-[var(--muted)]">Trademark Type:</span> <span className="text-[var(--text)]">{row.trademark_type || 'None'}</span></p>
+                                {row.matched_trademark && (
+                                  <p><span className="text-[var(--muted)]">Matched:</span> <span className="text-[var(--text)]">{row.matched_trademark}</span></p>
+                                )}
+                                <p><span className="text-[var(--muted)]">Confidence:</span> <span className="text-[var(--text)]">{(row.confidence * 100).toFixed(0)}%</span></p>
                               </div>
                             </div>
 
-                            {/* Vice Details */}
-                            <div className="bg-[var(--surface)] rounded-lg p-4 border border-[var(--line)]">
-                              <h4 className="font-medium text-[var(--text)] mb-2">Vice Analysis</h4>
-                              <div className="space-y-1 text-sm">
-                                <p><span className="text-[var(--muted)]">Categories:</span> <span className="text-[var(--text)]">{(row.vice_categories ?? []).join(', ') || '—'}</span></p>
-                                <p><span className="text-[var(--muted)]">Confidence:</span> <span className="text-[var(--text)]">{(row.vice_confidence * 100).toFixed(0)}%</span></p>
-                              </div>
-                            </div>
-
-                            {/* Commercial */}
+                            {/* Commercial Signal */}
                             <div className="bg-[var(--surface)] rounded-lg p-4 border border-[var(--line)]">
                               <h4 className="font-medium text-[var(--text)] mb-2">Commercial Signal</h4>
                               <div className="space-y-1 text-sm">
@@ -361,7 +313,6 @@ export default function ResultsTable({
                                   <>
                                     <p><span className="text-[var(--muted)]">Source:</span> <span className="text-[var(--text)]">{row.commercial_source}</span></p>
                                     <p><span className="text-[var(--muted)]">Similarity:</span> <span className="text-[var(--text)]">{(row.commercial_similarity * 100).toFixed(0)}%</span></p>
-                                    <p><span className="text-[var(--muted)]">Override:</span> <span className="text-[var(--text)]">{row.commercial_override ? 'Yes' : 'No'}</span></p>
                                   </>
                                 ) : (
                                   <p className="text-[var(--muted)]">No commercial data</p>
@@ -369,14 +320,6 @@ export default function ResultsTable({
                               </div>
                             </div>
                           </div>
-
-                          {/* Explanation */}
-                          {row.explanation && (
-                            <div className="mt-4 bg-[var(--surface)] rounded-lg p-4 border border-[var(--line)]">
-                              <h4 className="font-medium text-[var(--text)] mb-2">AI Explanation</h4>
-                              <p className="text-sm text-[var(--text)] leading-relaxed">{row.explanation}</p>
-                            </div>
-                          )}
                         </td>
                       </tr>
                     )}

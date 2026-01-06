@@ -747,22 +747,29 @@ func (s *Server) evaluateDomain(
 		viceCopy := finalViceScore
 		decision.ViceScore = &viceCopy
 
+		// Trust the AI's decision - it has structured thinking to classify word types
 		finalRec := strings.ToUpper(strings.TrimSpace(decision.Recommendation))
 		if finalRec == "" {
-			finalRec = overall.Recommendation
+			finalRec = "POTENTIAL_RISK" // Default if AI didn't respond
 		}
-		if genericPopular || popularWithoutTrademark {
-			finalRec = "REVIEW"
-		} else if popularToken {
-			finalRec = "BLOCK"
-		} else if fancifulUnknown && (finalRec == "ALLOW" || finalRec == "ALLOW_WITH_CAUTION") {
-			finalRec = "REVIEW"
+
+		// Map old format to new 3-tier system
+		switch finalRec {
+		case "YES_RISK", "NO_RISK", "POTENTIAL_RISK":
+			// Already in new format
+		case "BLOCK":
+			finalRec = "YES_RISK"
+		case "REVIEW", "ALLOW_WITH_CAUTION":
+			finalRec = "POTENTIAL_RISK"
+		case "ALLOW":
+			finalRec = "NO_RISK"
 		}
+
+		// Only override for serious vice content (drugs, illegal activity, etc.)
 		if viceResult.Score >= 4 {
-			finalRec = "BLOCK"
-		} else if viceResult.Score == 3 && finalRec == "ALLOW" {
-			finalRec = "REVIEW"
+			finalRec = "YES_RISK"
 		}
+
 		decision.Recommendation = finalRec
 		overall.Recommendation = finalRec
 

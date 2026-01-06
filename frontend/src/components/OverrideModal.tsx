@@ -12,16 +12,15 @@ interface OverrideModalProps {
 }
 
 const RECOMMENDATIONS = [
-  { value: 'BLOCK', label: 'Block', color: 'bg-red-500' },
-  { value: 'REVIEW', label: 'Review', color: 'bg-amber-500' },
-  { value: 'ALLOW_WITH_CAUTION', label: 'Caution', color: 'bg-yellow-500' },
-  { value: 'ALLOW', label: 'Allow', color: 'bg-green-500' }
+  { value: 'YES_RISK', label: 'Yes Risk', color: 'bg-red-500', description: 'Famous brand - block registration' },
+  { value: 'POTENTIAL_RISK', label: 'Potential Risk', color: 'bg-amber-500', description: 'Ambiguous - needs human review' },
+  { value: 'NO_RISK', label: 'No Risk', color: 'bg-green-500', description: 'Common word - safe to register' }
 ];
 
 const OVERRIDE_REASONS = [
-  'False positive - not a trademark conflict',
-  'Known brand - should be blocked',
-  'Generic term - lower risk than indicated',
+  'This is a famous brand name - should be blocked',
+  'This is a common English word - not a trademark risk',
+  'Ambiguous case - needs human review',
   'Vice content misclassified',
   'Commercial precedent exists',
   'Policy exception',
@@ -29,30 +28,26 @@ const OVERRIDE_REASONS = [
 ];
 
 export default function OverrideModal({ evaluation, onClose, onOverrideCreated }: OverrideModalProps) {
-  const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<OverrideDTO[]>([]);
 
   // Form state
   const [userName, setUserName] = useState('');
-  const [selectedRecommendation, setSelectedRecommendation] = useState(evaluation.overall_recommendation);
-  const [trademarkScore, setTrademarkScore] = useState<number>(evaluation.trademark_score);
-  const [viceScore, setViceScore] = useState<number>(evaluation.vice_score);
+  const [selectedRecommendation, setSelectedRecommendation] = useState(
+    normalizeRecommendation(evaluation.overall_recommendation)
+  );
   const [reason, setReason] = useState('');
   const [customReason, setCustomReason] = useState('');
   const [explanation, setExplanation] = useState(evaluation.explanation);
 
   useEffect(() => {
     async function loadHistory() {
-      setLoading(true);
       try {
         const response = await fetchEvaluationHistory(evaluation.id);
         setHistory(response.overrides);
       } catch {
         // History not critical - continue without it
-      } finally {
-        setLoading(false);
       }
     }
     loadHistory();
@@ -77,9 +72,7 @@ export default function OverrideModal({ evaluation, onClose, onOverrideCreated }
       overridden_by: userName.trim(),
       reason: finalReason,
       override_recommendation: selectedRecommendation,
-      override_explanation: explanation !== evaluation.explanation ? explanation : undefined,
-      override_trademark_score: trademarkScore !== evaluation.trademark_score ? trademarkScore : undefined,
-      override_vice_score: viceScore !== evaluation.vice_score ? viceScore : undefined
+      override_explanation: explanation !== evaluation.explanation ? explanation : undefined
     };
 
     try {
@@ -93,15 +86,14 @@ export default function OverrideModal({ evaluation, onClose, onOverrideCreated }
     }
   };
 
+  const normalizedCurrentRec = normalizeRecommendation(evaluation.overall_recommendation);
   const hasChanges =
-    selectedRecommendation !== evaluation.overall_recommendation ||
-    trademarkScore !== evaluation.trademark_score ||
-    viceScore !== evaluation.vice_score ||
+    selectedRecommendation !== normalizedCurrentRec ||
     explanation !== evaluation.explanation;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="relative max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-3xl border border-[var(--line)] bg-[var(--surface)] shadow-2xl">
+      <div className="relative max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-3xl border border-[var(--line)] bg-[var(--surface)] shadow-2xl">
         <button
           type="button"
           onClick={onClose}
@@ -113,7 +105,7 @@ export default function OverrideModal({ evaluation, onClose, onOverrideCreated }
         </button>
 
         <div className="p-8">
-          <h2 className="mb-6 text-xl font-semibold text-[var(--text)]">Override Evaluation</h2>
+          <h2 className="mb-6 text-xl font-semibold text-[var(--text)]">Override Decision</h2>
 
           {/* Current Evaluation */}
           <section className="mb-8 rounded-2xl border border-[var(--line)] bg-[var(--surface-2)] p-6">
@@ -124,24 +116,14 @@ export default function OverrideModal({ evaluation, onClose, onOverrideCreated }
                 <p className="font-medium text-[var(--text)]">{evaluation.domain}</p>
               </div>
               <div>
-                <span className="text-xs text-[var(--muted)]">Recommendation</span>
+                <span className="text-xs text-[var(--muted)]">Current Decision</span>
                 <div className="mt-1">
-                  <ScoreBadge variant="overall" label={evaluation.overall_recommendation} />
+                  <ScoreBadge label={evaluation.overall_recommendation} />
                 </div>
               </div>
               <div>
-                <span className="text-xs text-[var(--muted)]">Trademark</span>
-                <div className="mt-1 flex items-center gap-2">
-                  <ScoreBadge variant="trademark" score={evaluation.trademark_score} label={evaluation.trademark_score} />
-                  <span className="text-xs text-[var(--muted)]">{evaluation.trademark_type}</span>
-                </div>
-              </div>
-              <div>
-                <span className="text-xs text-[var(--muted)]">Vice</span>
-                <div className="mt-1 flex items-center gap-2">
-                  <ScoreBadge variant="vice" score={evaluation.vice_score} label={evaluation.vice_score} />
-                  <span className="text-xs text-[var(--muted)]">{(evaluation.vice_categories ?? []).join(', ') || 'None'}</span>
-                </div>
+                <span className="text-xs text-[var(--muted)]">Confidence</span>
+                <p className="font-medium text-[var(--text)]">{(evaluation.confidence * 100).toFixed(0)}%</p>
               </div>
             </div>
             <div className="mt-4">
@@ -164,60 +146,41 @@ export default function OverrideModal({ evaluation, onClose, onOverrideCreated }
             </div>
 
             <div>
-              <label className="mb-3 block text-sm font-medium text-[var(--text)]">Override Recommendation</label>
-              <div className="flex flex-wrap gap-2">
+              <label className="mb-3 block text-sm font-medium text-[var(--text)]">Override Decision</label>
+              <div className="grid gap-3">
                 {RECOMMENDATIONS.map((rec) => (
                   <button
                     key={rec.value}
                     type="button"
                     onClick={() => setSelectedRecommendation(rec.value)}
                     className={clsx(
-                      'rounded-full px-4 py-2 text-sm font-medium transition-all',
+                      'flex items-center gap-4 rounded-xl px-4 py-3 text-left transition-all border',
                       selectedRecommendation === rec.value
-                        ? `${rec.color} text-white shadow-md`
-                        : 'border border-[var(--line)] bg-[var(--surface-2)] text-[var(--text)] hover:bg-[var(--surface)]'
+                        ? `${rec.color} text-white border-transparent shadow-md`
+                        : 'border-[var(--line)] bg-[var(--surface-2)] text-[var(--text)] hover:bg-[var(--surface)]'
                     )}
                   >
-                    {rec.label}
+                    <div className={clsx(
+                      'w-4 h-4 rounded-full border-2 flex items-center justify-center',
+                      selectedRecommendation === rec.value
+                        ? 'border-white bg-white/30'
+                        : 'border-[var(--muted)]'
+                    )}>
+                      {selectedRecommendation === rec.value && (
+                        <div className="w-2 h-2 rounded-full bg-white" />
+                      )}
+                    </div>
+                    <div>
+                      <div className="font-medium">{rec.label}</div>
+                      <div className={clsx(
+                        'text-xs',
+                        selectedRecommendation === rec.value ? 'text-white/80' : 'text-[var(--muted)]'
+                      )}>
+                        {rec.description}
+                      </div>
+                    </div>
                   </button>
                 ))}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-6">
-              <div>
-                <label className="mb-2 block text-sm font-medium text-[var(--text)]">
-                  Trademark Score: {trademarkScore}
-                </label>
-                <input
-                  type="range"
-                  min="0"
-                  max="5"
-                  value={trademarkScore}
-                  onChange={(e) => setTrademarkScore(Number(e.target.value))}
-                  className="w-full accent-[var(--text)]"
-                />
-                <div className="mt-1 flex justify-between text-xs text-[var(--muted)]">
-                  <span>0 (Clean)</span>
-                  <span>5 (Severe)</span>
-                </div>
-              </div>
-              <div>
-                <label className="mb-2 block text-sm font-medium text-[var(--text)]">
-                  Vice Score: {viceScore}
-                </label>
-                <input
-                  type="range"
-                  min="0"
-                  max="5"
-                  value={viceScore}
-                  onChange={(e) => setViceScore(Number(e.target.value))}
-                  className="w-full accent-[var(--text)]"
-                />
-                <div className="mt-1 flex justify-between text-xs text-[var(--muted)]">
-                  <span>0 (Clean)</span>
-                  <span>5 (Severe)</span>
-                </div>
               </div>
             </div>
 
@@ -298,7 +261,7 @@ export default function OverrideModal({ evaluation, onClose, onOverrideCreated }
                       <span className="font-medium text-[var(--text)]">{override.overridden_by}</span>
                       <span className="text-[var(--muted)]">{dayjs(override.created_at).format('YYYY-MM-DD HH:mm')}</span>
                       <span className="text-[var(--muted)]">
-                        {override.original_recommendation} → {override.override_recommendation}
+                        {formatDecision(override.original_recommendation)} → {formatDecision(override.override_recommendation)}
                       </span>
                       {override.feedback_applied && (
                         <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700">
@@ -316,4 +279,39 @@ export default function OverrideModal({ evaluation, onClose, onOverrideCreated }
       </div>
     </div>
   );
+}
+
+// Helper to normalize legacy recommendations to new 3-tier format
+function normalizeRecommendation(rec: string): string {
+  switch (rec.toUpperCase()) {
+    case 'YES_RISK':
+    case 'BLOCK':
+      return 'YES_RISK';
+    case 'NO_RISK':
+    case 'ALLOW':
+      return 'NO_RISK';
+    case 'POTENTIAL_RISK':
+    case 'REVIEW':
+    case 'ALLOW_WITH_CAUTION':
+      return 'POTENTIAL_RISK';
+    default:
+      return 'POTENTIAL_RISK';
+  }
+}
+
+function formatDecision(rec: string): string {
+  switch (rec.toUpperCase()) {
+    case 'YES_RISK':
+    case 'BLOCK':
+      return 'Yes Risk';
+    case 'NO_RISK':
+    case 'ALLOW':
+      return 'No Risk';
+    case 'POTENTIAL_RISK':
+    case 'REVIEW':
+    case 'ALLOW_WITH_CAUTION':
+      return 'Potential Risk';
+    default:
+      return rec;
+  }
 }

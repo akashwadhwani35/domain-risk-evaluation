@@ -4,18 +4,15 @@ import {
   PieChart,
   Pie,
   Cell,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
   Tooltip,
   ResponsiveContainer,
   LineChart,
   Line,
-  Legend
+  XAxis,
+  YAxis
 } from 'recharts';
 import { fetchStats } from '../lib/api';
-import type { StatsResponse, BatchDTO, EvaluationDTO, BatchSummary } from '../types';
+import type { StatsResponse, BatchDTO, BatchSummary } from '../types';
 import ScoreBadge from './ScoreBadge';
 
 interface DashboardProps {
@@ -23,19 +20,17 @@ interface DashboardProps {
   onSelectBatch: (batch: BatchDTO) => void;
 }
 
-// Color palette matching existing design
+// Color palette for 3-tier system
 const COLORS = {
-  block: '#8f2f1d',
-  review: '#1e4fbf',
-  caution: '#8a5a00',
-  allow: '#1f6b3d',
-  blockBg: '#ffe9e4',
-  reviewBg: '#e7f0ff',
-  cautionBg: '#fff4da',
-  allowBg: '#e6f7ee'
+  yes_risk: '#dc2626',      // red-600
+  potential_risk: '#d97706', // amber-600
+  no_risk: '#16a34a',       // green-600
+  yes_riskBg: '#fef2f2',    // red-50
+  potential_riskBg: '#fffbeb', // amber-50
+  no_riskBg: '#f0fdf4'      // green-50
 };
 
-const PIE_COLORS = [COLORS.block, COLORS.review, COLORS.caution, COLORS.allow];
+const PIE_COLORS = [COLORS.yes_risk, COLORS.potential_risk, COLORS.no_risk];
 
 function formatNumber(num: number): string {
   if (num >= 1000000) {
@@ -71,21 +66,19 @@ function StatCard({ label, value, accent }: StatCardProps) {
   );
 }
 
-interface RecommendationPieChartProps {
+interface RiskDistributionChartProps {
   data: {
-    block: number;
-    review: number;
-    allow_with_caution: number;
-    allow: number;
+    yes_risk: number;
+    potential_risk: number;
+    no_risk: number;
   };
 }
 
-function RecommendationPieChart({ data }: RecommendationPieChartProps) {
+function RiskDistributionChart({ data }: RiskDistributionChartProps) {
   const chartData = [
-    { name: 'Block', value: data.block, color: COLORS.block },
-    { name: 'Review', value: data.review, color: COLORS.review },
-    { name: 'Caution', value: data.allow_with_caution, color: COLORS.caution },
-    { name: 'Allow', value: data.allow, color: COLORS.allow }
+    { name: 'Yes Risk', value: data.yes_risk, color: COLORS.yes_risk },
+    { name: 'Potential Risk', value: data.potential_risk, color: COLORS.potential_risk },
+    { name: 'No Risk', value: data.no_risk, color: COLORS.no_risk }
   ].filter((d) => d.value > 0);
 
   const total = chartData.reduce((sum, d) => sum + d.value, 0);
@@ -144,109 +137,6 @@ function RecommendationPieChart({ data }: RecommendationPieChartProps) {
   );
 }
 
-interface ScoreDistributionChartProps {
-  trademarkData: { score: number; count: number }[];
-  viceData: { score: number; count: number }[];
-}
-
-function ScoreDistributionChart({ trademarkData, viceData }: ScoreDistributionChartProps) {
-  // Ensure all scores 0-5 are represented
-  const fillScores = (data: { score: number; count: number }[]) => {
-    const map = new Map(data.map((d) => [d.score, d.count]));
-    return Array.from({ length: 6 }, (_, i) => ({
-      score: i,
-      count: map.get(i) ?? 0
-    }));
-  };
-
-  const combinedData = Array.from({ length: 6 }, (_, i) => ({
-    score: i.toString(),
-    trademark: fillScores(trademarkData).find((d) => d.score === i)?.count ?? 0,
-    vice: fillScores(viceData).find((d) => d.score === i)?.count ?? 0
-  }));
-
-  return (
-    <ResponsiveContainer width="100%" height={200}>
-      <BarChart data={combinedData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-        <XAxis
-          dataKey="score"
-          tick={{ fontSize: 11, fill: 'var(--muted)' }}
-          axisLine={{ stroke: 'var(--line)' }}
-          tickLine={false}
-        />
-        <YAxis
-          tick={{ fontSize: 11, fill: 'var(--muted)' }}
-          axisLine={false}
-          tickLine={false}
-          tickFormatter={formatNumber}
-        />
-        <Tooltip
-          contentStyle={{
-            backgroundColor: 'var(--surface)',
-            border: '1px solid var(--line)',
-            borderRadius: '8px',
-            fontSize: '12px'
-          }}
-          formatter={(value: number) => formatNumber(value)}
-        />
-        <Legend
-          wrapperStyle={{ fontSize: '11px' }}
-          formatter={(value) => (value === 'trademark' ? 'Trademark' : 'Vice')}
-        />
-        <Bar dataKey="trademark" fill={COLORS.review} radius={[4, 4, 0, 0]} />
-        <Bar dataKey="vice" fill={COLORS.block} radius={[4, 4, 0, 0]} />
-      </BarChart>
-    </ResponsiveContainer>
-  );
-}
-
-interface TopRisksPanelProps {
-  title: string;
-  items: EvaluationDTO[];
-  scoreKey: 'trademark_score' | 'vice_score';
-}
-
-function TopRisksPanel({ title, items, scoreKey }: TopRisksPanelProps) {
-  if (items.length === 0) {
-    return (
-      <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
-        <h3 className="font-semibold text-[var(--text)] mb-3">{title}</h3>
-        <div className="text-sm text-[var(--muted)]">No high-risk domains found</div>
-      </section>
-    );
-  }
-
-  return (
-    <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
-      <h3 className="font-semibold text-[var(--text)] mb-3">{title}</h3>
-      <div className="space-y-3">
-        {items.map((item) => (
-          <div
-            key={item.id}
-            className="flex items-center justify-between gap-3 py-2 border-b border-[var(--line)] last:border-0"
-          >
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-[var(--text)] truncate">
-                {item.domain}
-              </div>
-              <div className="text-xs text-[var(--muted)] truncate">
-                {scoreKey === 'trademark_score' && item.matched_trademark
-                  ? `Matched: ${item.matched_trademark}`
-                  : item.vice_categories?.join(', ') || 'No categories'}
-              </div>
-            </div>
-            <ScoreBadge
-              score={item[scoreKey]}
-              label={item[scoreKey]}
-              variant={scoreKey === 'trademark_score' ? 'trademark' : 'vice'}
-            />
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 interface BatchOverviewTableProps {
   batches: BatchSummary[];
   onSelectBatch: (batch: BatchDTO) => void;
@@ -276,17 +166,14 @@ function BatchOverviewTable({
             <th className="text-right py-2 px-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--muted)]">
               Progress
             </th>
-            <th className="text-right py-2 px-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-[#8f2f1d]">
-              Block
+            <th className="text-right py-2 px-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-[#dc2626]">
+              Yes Risk
             </th>
-            <th className="text-right py-2 px-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-[#1e4fbf]">
-              Review
+            <th className="text-right py-2 px-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-[#d97706]">
+              Potential
             </th>
-            <th className="text-right py-2 px-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-[#8a5a00]">
-              Caution
-            </th>
-            <th className="text-right py-2 px-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-[#1f6b3d]">
-              Allow
+            <th className="text-right py-2 px-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-[#16a34a]">
+              No Risk
             </th>
           </tr>
         </thead>
@@ -297,6 +184,11 @@ function BatchOverviewTable({
                 ? Math.round((batch.processed_domains / batch.total_domains) * 100)
                 : 0;
             const isSelected = batch.id === selectedBatchId;
+
+            // Map old counts to new 3-tier counts
+            const yesRisk = batch.block_count ?? 0;
+            const potentialRisk = (batch.review_count ?? 0) + (batch.caution_count ?? 0);
+            const noRisk = batch.allow_count ?? 0;
 
             return (
               <tr
@@ -336,17 +228,14 @@ function BatchOverviewTable({
                     <span className="text-xs text-[var(--muted)]">{progress}%</span>
                   </div>
                 </td>
-                <td className="py-2 px-2 text-right text-[#8f2f1d] font-medium">
-                  {formatNumber(batch.block_count)}
+                <td className="py-2 px-2 text-right text-[#dc2626] font-medium">
+                  {formatNumber(yesRisk)}
                 </td>
-                <td className="py-2 px-2 text-right text-[#1e4fbf] font-medium">
-                  {formatNumber(batch.review_count)}
+                <td className="py-2 px-2 text-right text-[#d97706] font-medium">
+                  {formatNumber(potentialRisk)}
                 </td>
-                <td className="py-2 px-2 text-right text-[#8a5a00] font-medium">
-                  {formatNumber(batch.caution_count)}
-                </td>
-                <td className="py-2 px-2 text-right text-[#1f6b3d] font-medium">
-                  {formatNumber(batch.allow_count)}
+                <td className="py-2 px-2 text-right text-[#16a34a] font-medium">
+                  {formatNumber(noRisk)}
                 </td>
               </tr>
             );
@@ -486,6 +375,13 @@ export default function Dashboard({ selectedBatch, onSelectBatch }: DashboardPro
     return null;
   }
 
+  // Map old recommendation counts to new 3-tier system
+  const riskCounts = {
+    yes_risk: stats.recommendation_counts.block ?? 0,
+    potential_risk: (stats.recommendation_counts.review ?? 0) + (stats.recommendation_counts.allow_with_caution ?? 0),
+    no_risk: stats.recommendation_counts.allow ?? 0
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -509,56 +405,29 @@ export default function Dashboard({ selectedBatch, onSelectBatch }: DashboardPro
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard label="Total Evaluated" value={stats.total_evaluations} />
         <StatCard
-          label="Avg Processing"
-          value={`${stats.avg_processing_time_ms.toFixed(0)}ms`}
+          label="Yes Risk"
+          value={riskCounts.yes_risk}
+          accent="bg-red-50"
         />
         <StatCard
-          label="Block"
-          value={stats.recommendation_counts.block}
-          accent="bg-[#ffe9e4]"
+          label="Potential Risk"
+          value={riskCounts.potential_risk}
+          accent="bg-amber-50"
         />
         <StatCard
-          label="Review"
-          value={stats.recommendation_counts.review}
-          accent="bg-[#e7f0ff]"
+          label="No Risk"
+          value={riskCounts.no_risk}
+          accent="bg-green-50"
         />
       </div>
 
-      {/* Charts Row */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Recommendation Distribution Pie Chart */}
-        <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
-          <h3 className="font-semibold text-[var(--text)] mb-4">
-            Risk Distribution
-          </h3>
-          <RecommendationPieChart data={stats.recommendation_counts} />
-        </section>
-
-        {/* Score Distribution Bar Charts */}
-        <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
-          <h3 className="font-semibold text-[var(--text)] mb-4">
-            Score Distribution
-          </h3>
-          <ScoreDistributionChart
-            trademarkData={stats.trademark_distribution ?? []}
-            viceData={stats.vice_distribution ?? []}
-          />
-        </section>
-      </div>
-
-      {/* Top Risks Row */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <TopRisksPanel
-          title="Top Trademark Risks"
-          items={stats.top_trademark_risks ?? []}
-          scoreKey="trademark_score"
-        />
-        <TopRisksPanel
-          title="Top Vice Risks"
-          items={stats.top_vice_risks ?? []}
-          scoreKey="vice_score"
-        />
-      </div>
+      {/* Risk Distribution Chart */}
+      <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
+        <h3 className="font-semibold text-[var(--text)] mb-4">
+          Risk Distribution
+        </h3>
+        <RiskDistributionChart data={riskCounts} />
+      </section>
 
       {/* Batch Overview */}
       {stats.recent_batches && stats.recent_batches.length > 0 && (

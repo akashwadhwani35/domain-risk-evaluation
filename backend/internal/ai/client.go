@@ -241,7 +241,41 @@ func (c *Client) buildPayload(input ExplanationInput) map[string]any {
 	messages := []map[string]string{
 		{
 			"role":    "system",
-			"content": "You are a domain risk analyst. Reply with a strict JSON object containing keys narrative, trademark_score, vice_score, recommendation, confidence, famous_match, and famous_label. Evaluate trademark_score and vice_score as integers 0-5 (5 = severe conflict, 0 = clean) using the supplied evidence. Apply these rules:\n1. If the second-level label or any domain token is a well-known brand, personality, product, organization, or entertainment property (popular_token == true), set trademark_score to 5, recommendation to BLOCK, famous_match to true, and famous_label to that entity—even when heuristics suggested otherwise.\n2. If generic_popular == true (common English word heavily used by multiple parties such as crown, jeep, delta, liberty), cap trademark_score at 3 and recommendation at REVIEW unless additional evidence proves a famous-exclusive claim.\n3. If fanciful_unknown == true (invented spelling with no evidence of fame), default trademark_score to 3 and recommendation to REVIEW unless other evidence warrants escalation.\n4. Respect vice signals: vice_score >=4 must BLOCK, vice_score ==3 must at least REVIEW.\n5. Vice and trademark reasoning should combine logically; if both are clean, ALLOW or ALLOW_WITH_CAUTION only when appropriate.\nNarrative must contain exactly two sentences separated by a newline, the first sentence must reference the second-level label directly, and the second sentence must justify the action using concrete evidence. Do not start sentences with 'The term', 'Overall', 'I', 'I'd', 'Feels like', or 'It comes across', and avoid repeating opening clauses. Do not prefix the second sentence with labels like 'Stance:' or 'Recommendation:'. Vary vocabulary between responses. recommendation must be one of BLOCK, REVIEW, ALLOW_WITH_CAUTION, or ALLOW. confidence must be a decimal between 0 and 1. famous_match must be a boolean, famous_label must be concise or empty when famous_match is false. Emit nothing outside the JSON object, and never include the character \"\" inside any JSON string value.",
+			"content": `You are a smart domain risk analyst. Think step-by-step before deciding.
+
+OUTPUT JSON with these fields:
+{
+  "word_type": "famous_brand" | "common_word" | "ambiguous" | "unknown",
+  "word_meaning": "Brief definition - what does this word mean in everyday usage?",
+  "is_invented_name": true/false - "Is this an invented/made-up name that ONLY refers to one company?",
+  "famous_brand_match": "Name of famous brand if applicable, or empty string",
+  "decision": "YES_RISK" | "NO_RISK" | "POTENTIAL_RISK",
+  "explanation": "2-3 sentences explaining your reasoning. Be helpful to the user."
+}
+
+STEP 1 - CLASSIFY THE WORD:
+• famous_brand: Invented names that ONLY mean one company. Examples: microsoft, google, xerox, nike, adidas, ferrari, netflix, starbucks, mcdonalds, cocacola, pepsi, toyota, honda, bmw. These are made-up words or names so unique they only refer to the brand.
+• common_word: Regular English dictionary words anyone can use. Examples: pioneer (explorer), patriot (loyal citizen), ace (expert/card), spectrum (range), cyclone (storm), eagle (bird), phoenix (mythical bird), titan (giant), delta (triangle/change), crown (royal headwear), liberty (freedom), raptor (bird of prey). Even if trademarked, these are just normal words!
+• ambiguous: Common words that are ALSO super-famous brands. Examples: apple (fruit AND Apple Inc), amazon (river AND Amazon.com), shell (seashell AND Shell Oil), virgin (word AND Virgin Group), target (goal AND Target stores).
+• unknown: Unusual words you're not sure about.
+
+STEP 2 - DECIDE BASED ON CLASSIFICATION:
+• famous_brand → YES_RISK (clear infringement)
+• common_word → NO_RISK (just a regular word, not infringement)
+• ambiguous → POTENTIAL_RISK (needs human review)
+• unknown → POTENTIAL_RISK (needs human review)
+
+STEP 3 - VERIFY YOUR LOGIC:
+Before outputting, check: Does my decision MATCH my classification?
+- If word_type is "common_word" but decision is "YES_RISK" → WRONG, fix it
+- If word_type is "famous_brand" but decision is "NO_RISK" → WRONG, fix it
+
+STEP 4 - WRITE HELPFUL EXPLANATION:
+Explain WHY this word is/isn't a problem. Help the user understand.
+
+IMPORTANT: Just because a word appears in a trademark database does NOT make it risky. Millions of common words are trademarked. Only FAMOUS INVENTED brand names are actual risks.
+
+For vice/dangerous content (drugs, illegal, fraud, malware): Always YES_RISK regardless of word type.`,
 		},
 		{
 			"role":    "user",
@@ -348,10 +382,63 @@ func sanitizeDecision(decision *Decision) {
 	if decision == nil {
 		return
 	}
+
+	// Handle new structured format
+	decision.WordType = strings.ToLower(strings.TrimSpace(decision.WordType))
+	decision.WordMeaning = strings.TrimSpace(decision.WordMeaning)
+	decision.Explanation = strings.TrimSpace(decision.Explanation)
+	decision.FamousBrandMatch = strings.TrimSpace(decision.FamousBrandMatch)
+
+	// Normalize the decision field (new format uses "decision", old uses "recommendation")
+	finalDecision := strings.ToUpper(strings.TrimSpace(decision.Decision))
+	if finalDecision == "" {
+		finalDecision = strings.ToUpper(strings.TrimSpace(decision.Recommendation))
+	}
+
+	// Map to valid 3-tier values
+	switch finalDecision {
+	case "YES_RISK", "NO_RISK", "POTENTIAL_RISK":
+		// Already valid
+	case "BLOCK":
+		finalDecision = "YES_RISK"
+	case "REVIEW", "ALLOW_WITH_CAUTION":
+		finalDecision = "POTENTIAL_RISK"
+	case "ALLOW":
+		finalDecision = "NO_RISK"
+	default:
+		// Use word_type to infer decision if missing
+		switch decision.WordType {
+		case "famous_brand":
+			finalDecision = "YES_RISK"
+		case "common_word":
+			finalDecision = "NO_RISK"
+		default:
+			finalDecision = "POTENTIAL_RISK"
+		}
+	}
+
+	decision.Decision = finalDecision
+	decision.Recommendation = finalDecision
+
+	// Use explanation as narrative if narrative is empty
+	if decision.Narrative == "" && decision.Explanation != "" {
+		decision.Narrative = decision.Explanation
+	}
 	decision.Narrative = strings.TrimSpace(decision.Narrative)
+
+	// Handle famous match from new format
+	if decision.FamousBrandMatch != "" && decision.FamousLabel == "" {
+		decision.FamousLabel = decision.FamousBrandMatch
+	}
 	if decision.FamousLabel != "" {
 		decision.FamousLabel = strings.TrimSpace(decision.FamousLabel)
+		if decision.FamousMatch == nil {
+			match := true
+			decision.FamousMatch = &match
+		}
 	}
+
+	// Legacy field handling
 	if decision.TrademarkScore != nil {
 		val := clampInt(*decision.TrademarkScore, 0, 5)
 		decision.TrademarkScore = &val
@@ -359,12 +446,6 @@ func sanitizeDecision(decision *Decision) {
 	if decision.ViceScore != nil {
 		val := clampInt(*decision.ViceScore, 0, 5)
 		decision.ViceScore = &val
-	}
-	decision.Recommendation = strings.ToUpper(strings.TrimSpace(decision.Recommendation))
-	switch decision.Recommendation {
-	case "BLOCK", "REVIEW", "ALLOW_WITH_CAUTION", "ALLOW":
-	default:
-		decision.Recommendation = ""
 	}
 	if decision.Confidence != nil {
 		val := clampFloat(*decision.Confidence, 0, 1)
