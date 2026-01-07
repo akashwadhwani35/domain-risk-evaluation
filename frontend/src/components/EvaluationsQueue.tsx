@@ -56,7 +56,8 @@ export default function EvaluationsQueue({ batchId, onOverrideCreated }: Evaluat
     const request: OverrideRequest = {
       overridden_by: 'Quick Review',
       reason,
-      override_recommendation: decision,
+      override_trademark_recommendation: decision,
+      override_vice_recommendation: decision,
       override_explanation: explanation
     };
 
