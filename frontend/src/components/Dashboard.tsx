@@ -11,7 +11,7 @@ import {
   XAxis,
   YAxis
 } from 'recharts';
-import { fetchStats } from '../lib/api';
+import { fetchStats, resetDatabase } from '../lib/api';
 import type { StatsResponse, BatchDTO, BatchSummary } from '../types';
 import ScoreBadge from './ScoreBadge';
 
@@ -342,6 +342,7 @@ export default function Dashboard({ selectedBatch, onSelectBatch, onSwitchToResu
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
 
   const loadStats = useCallback(async () => {
     setLoading(true);
@@ -359,6 +360,21 @@ export default function Dashboard({ selectedBatch, onSelectBatch, onSwitchToResu
   useEffect(() => {
     loadStats();
   }, [loadStats]);
+
+  const handleReset = async () => {
+    if (!window.confirm('Are you sure you want to reset the database? This will delete all evaluations, batches, overrides, and feedback. This cannot be undone.')) {
+      return;
+    }
+    setResetting(true);
+    try {
+      await resetDatabase();
+      await loadStats();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to reset database');
+    } finally {
+      setResetting(false);
+    }
+  };
 
   if (loading) {
     return <DashboardSkeleton />;
@@ -422,6 +438,18 @@ export default function Dashboard({ selectedBatch, onSelectBatch, onSwitchToResu
           value={totalViceRisks}
           accent="bg-amber-50"
         />
+      </div>
+
+      {/* Reset Database Button */}
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={handleReset}
+          disabled={resetting}
+          className="rounded-lg border border-red-300 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-100 transition-colors disabled:opacity-50"
+        >
+          {resetting ? 'Resetting...' : 'Reset Database'}
+        </button>
       </div>
 
       {/* Risk Distribution Charts - Two separate pie charts */}

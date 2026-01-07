@@ -179,3 +179,8 @@ export async function createTrainingTerm(term: string, classification: 'YES_RISK
 export async function deleteTrainingTerm(id: number): Promise<void> {
   await client.delete(`/training-terms/${id}`);
 }
+
+export async function resetDatabase(): Promise<{ success: boolean; message: string }> {
+  const response = await client.post<{ success: boolean; message: string }>('/reset');
+  return response.data;
+}
