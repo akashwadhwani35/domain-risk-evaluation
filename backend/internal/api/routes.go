@@ -223,14 +223,9 @@ func (s *Server) Router() (*gin.Engine, error) {
 	r := gin.Default()
 
 	corsCfg := cors.DefaultConfig()
-	corsCfg.AllowCredentials = true
-	if len(s.allowedOrigins) == 0 {
-		corsCfg.AllowAllOrigins = true
-	} else {
-		corsCfg.AllowOrigins = s.allowedOrigins
-	}
-	corsCfg.AllowHeaders = []string{"Origin", "Content-Type", "Accept"}
-	corsCfg.AllowMethods = []string{"GET", "POST", "DELETE", "OPTIONS"}
+	corsCfg.AllowAllOrigins = true // Allow all origins for simplicity
+	corsCfg.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization"}
+	corsCfg.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
 	r.Use(cors.New(corsCfg))
 
 	r.GET("/api/healthz", s.handleHealth)
