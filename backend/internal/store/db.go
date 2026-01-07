@@ -1546,3 +1546,33 @@ func (d *Database) GetTrainingTermsByClassification(classification string) ([]AI
 func (d *Database) DeleteTrainingTerm(id uint) error {
 	return d.gorm.Delete(&AITrainingTerm{}, id).Error
 }
+
+// ResetAllData clears all user data from the database (evaluations, batches, overrides, feedback).
+// Keeps reference data like marks and commercial sales.
+func (d *Database) ResetAllData() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	// Order matters due to foreign key constraints
+	tables := []interface{}{
+		&FeedbackEmbedding{},
+		&EvaluationOverride{},
+		&BatchRequest{},
+		&DomainBatch{},
+		&JobState{},
+		&Evaluation{},
+		&CSVBatch{},
+		&AITrainingTerm{},
+	}
+
+	for _, table := range tables {
+		if err := d.gorm.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(table).Error; err != nil {
+			return fmt.Errorf("clear table %T: %w", table, err)
+		}
+	}
+
+	// Reset auto-increment counters (SQLite specific, ignored on other DBs)
+	d.gorm.Exec("DELETE FROM sqlite_sequence WHERE name IN ('feedback_embeddings', 'evaluation_overrides', 'batch_requests', 'domain_batches', 'job_states', 'evaluations', 'csv_batches', 'ai_training_terms')")
+
+	return nil
+}

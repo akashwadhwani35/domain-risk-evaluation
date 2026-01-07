@@ -266,6 +266,9 @@ func (s *Server) Router() (*gin.Engine, error) {
 		api.GET("/training-terms", s.handleGetTrainingTerms)
 		api.POST("/training-terms", s.handleCreateTrainingTerm)
 		api.DELETE("/training-terms/:id", s.handleDeleteTrainingTerm)
+
+		// Admin / Reset
+		api.POST("/reset", s.handleReset)
 	}
 
 	return r, nil
@@ -1701,4 +1704,17 @@ func (s *Server) handleDeleteTrainingTerm(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"deleted": true})
+}
+
+// handleReset clears all user data from the database.
+func (s *Server) handleReset(c *gin.Context) {
+	if err := s.db.ResetAllData(); err != nil {
+		s.renderError(c, http.StatusInternalServerError, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "All evaluations, batches, overrides, and feedback cleared",
+	})
 }
