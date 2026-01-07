@@ -47,22 +47,13 @@ export default function OverrideModal({ evaluation, onClose, onOverrideCreated }
     setSubmitting(true);
     setError(null);
 
+    // Always send both recommendations (backend will track what changed)
     const request: OverrideRequest = {
       overridden_by: 'User',
-      reason: 'Manual correction'
+      reason: 'Manual correction',
+      override_trademark_recommendation: trademarkRecommendation,
+      override_vice_recommendation: viceRecommendation
     };
-
-    // Only include trademark recommendation if changed
-    const normalizedTmRec = normalizeRecommendation(evaluation.trademark_recommendation);
-    if (trademarkRecommendation !== normalizedTmRec) {
-      request.override_trademark_recommendation = trademarkRecommendation;
-    }
-
-    // Only include vice recommendation if changed
-    const normalizedViceRec = normalizeRecommendation(evaluation.vice_recommendation);
-    if (viceRecommendation !== normalizedViceRec) {
-      request.override_vice_recommendation = viceRecommendation;
-    }
 
     try {
       const override = await createOverride(evaluation.id, request);
