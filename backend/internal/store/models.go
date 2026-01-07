@@ -316,16 +316,24 @@ func ScoreToRecommendation(score int) string {
 }
 
 // DeriveRecommendations populates TrademarkRecommendation and ViceRecommendation from scores.
+// Only sets values if not already set (AI decision takes priority).
 func (e *Evaluation) DeriveRecommendations() {
-	e.TrademarkRecommendation = ScoreToRecommendation(e.TrademarkScore)
-	e.ViceRecommendation = ScoreToRecommendation(e.ViceScore)
-	// Legacy overall: YES_RISK if either is YES_RISK, else highest risk level
-	if e.TrademarkRecommendation == "YES_RISK" || e.ViceRecommendation == "YES_RISK" {
-		e.OverallRecommendation = "YES_RISK"
-	} else if e.TrademarkRecommendation == "POTENTIAL_RISK" || e.ViceRecommendation == "POTENTIAL_RISK" {
-		e.OverallRecommendation = "POTENTIAL_RISK"
-	} else {
-		e.OverallRecommendation = "NO_RISK"
+	// Only derive from scores if not already set by AI
+	if e.TrademarkRecommendation == "" {
+		e.TrademarkRecommendation = ScoreToRecommendation(e.TrademarkScore)
+	}
+	if e.ViceRecommendation == "" {
+		e.ViceRecommendation = ScoreToRecommendation(e.ViceScore)
+	}
+	// Only derive overall if not already set
+	if e.OverallRecommendation == "" {
+		if e.TrademarkRecommendation == "YES_RISK" || e.ViceRecommendation == "YES_RISK" {
+			e.OverallRecommendation = "YES_RISK"
+		} else if e.TrademarkRecommendation == "POTENTIAL_RISK" || e.ViceRecommendation == "POTENTIAL_RISK" {
+			e.OverallRecommendation = "POTENTIAL_RISK"
+		} else {
+			e.OverallRecommendation = "NO_RISK"
+		}
 	}
 }
 
