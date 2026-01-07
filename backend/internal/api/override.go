@@ -28,9 +28,18 @@ func (s *Server) handleCreateOverride(c *gin.Context) {
 
 	var req OverrideRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		logrus.WithError(err).WithField("evaluation_id", evaluationID).Warn("override: invalid request body")
 		s.renderError(c, http.StatusBadRequest, fmt.Errorf("invalid request body: %w", err))
 		return
 	}
+
+	logrus.WithFields(logrus.Fields{
+		"evaluation_id": evaluationID,
+		"tm_rec":        req.OverrideTrademarkRecommendation,
+		"vice_rec":      req.OverrideViceRecommendation,
+		"overridden_by": req.OverriddenBy,
+		"reason":        req.Reason,
+	}).Info("override: received request")
 
 	// Validate and normalize trademark recommendation if provided
 	req.OverrideTrademarkRecommendation = strings.ToUpper(strings.TrimSpace(req.OverrideTrademarkRecommendation))
@@ -58,6 +67,7 @@ func (s *Server) handleCreateOverride(c *gin.Context) {
 
 	// Require at least one recommendation to be overridden
 	if req.OverrideTrademarkRecommendation == "" && req.OverrideViceRecommendation == "" {
+		logrus.WithField("evaluation_id", evaluationID).Warn("override: no recommendations provided")
 		s.renderError(c, http.StatusBadRequest, errors.New("at least one of trademark or vice recommendation must be provided"))
 		return
 	}
