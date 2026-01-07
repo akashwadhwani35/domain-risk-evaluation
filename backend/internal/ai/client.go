@@ -241,39 +241,35 @@ func (c *Client) buildPayload(input ExplanationInput) map[string]any {
 	messages := []map[string]string{
 		{
 			"role":    "system",
-			"content": `You classify domains for trademark risk. Be DECISIVE - avoid overusing POTENTIAL_RISK.
+			"content": `You are a trademark lawyer. Identify domains that could ACTUALLY cause legal problems.
 
-YES_RISK - Famous brands with INVENTED/UNIQUE names everyone knows:
-- Tech giants: Google, Microsoft, Apple, Amazon, Netflix, Spotify, YouTube, TikTok, Pinterest, Uber, Airbnb
-- Their famous products: iPod, iPhone, iPad, Xbox, Bing, Alexa, Kindle, Gmail
-- Famous brands: Nike, Adidas, Vans, Gucci, Chanel, Rolex, Mercedes, Benz, BMW, Tesla, Ferrari
-- Media: Disney, CNN, CNBC, ESPN, HBO, BBC, NBC, Fox, MTV, TED/TEDx
-- Fast food: McDonald's, Starbucks, KFC, Burger King, Subway, Dominos
-- Celebrities: Beyoncé, Taylor Swift, Kanye, Oprah, Kardashian
-- If it's an INVENTED word that ONLY means the brand → YES_RISK
+Question: "Would a major company sue over this domain?"
 
-NO_RISK - The DEFAULT. Use liberally:
-- Random letters: rrrr, jjjj, kkkk, akrn, wqsh, mixr, bmkt, qcom, dtcc
-- Generic words: frontier, horizon, quantum, summit, legacy, pulse, diamond, voice
-- Technical terms: healthcareapi, cloudrun, bigquery, procurement
-- Common words even if a brand exists: apple (fruit), shell (seashell), amazon (river)
-- Scunthorpe cases: draper, scunthorpe, therapeutic, essex, sussex, cocktail, penistone
-- If you don't INSTANTLY recognize it → NO_RISK
+YES_RISK - A company WILL sue:
+- World-famous brands: Google, Microsoft, Nike, Disney, Netflix, Spotify, Pinterest, Uber, Tesla, Ferrari, Gucci, Rolex, Starbucks, McDonald's
+- Famous products: iPod, iPhone, Xbox, Alexa, Gmail, Kindle
+- Famous media: CNN, ESPN, HBO, BBC, MTV, TED/TEDx
 
-POTENTIAL_RISK - Use SPARINGLY, only when truly torn:
-- Famous character names that predate the brand: Cinderella, Aurora, Jasmine, Ariel (fairy tales before Disney)
-- Words that are BOTH a common word AND a famous brand: Apple, Shell, Amazon
-- Regional brands only known in one country: Edeka (German), Argos (UK), Woolworths (AU)
+NO_RISK - Nobody will sue (THIS IS THE DEFAULT):
+- Random letters: aigo, omie, efit, visn, bcms, biox, xoft, mrkt, tvdb, mixr
+- Dictionary words: david, already, enemy, join, ratio, diamond, voice, spirit, recovery, banking, home
+- Generic terms: procurement, janitorial, locksmith, electrician, cybersex, threesome
+- Person names: brian, amanda, david
+- Abbreviations: rmbs, udoc, macg
+- If it's not a household brand name → NO_RISK
 
-Rule: When in doubt between NO_RISK and POTENTIAL_RISK → choose NO_RISK.
-Rule: Random letter combinations are ALWAYS NO_RISK, never POTENTIAL_RISK.
+POTENTIAL_RISK - ONLY use when it's genuinely a famous brand AND a common word:
+- Apple (company + fruit), Amazon (company + river), Shell (company + seashell)
+- This should be RARE - less than 5% of domains
+
+CRITICAL: Your decision MUST match your explanation. If you say "no trademark risk" or "unlikely to cause legal trouble" → decision MUST be NO_RISK.
 
 OUTPUT JSON:
 {
-  "word_type": "famous_brand" | "common_word" | "generic_term" | "obscure_brand",
-  "famous_brand_match": "Brand name if famous",
+  "word_type": "famous_brand" | "common_word" | "random_letters",
+  "famous_brand_match": "Brand name or empty",
   "decision": "YES_RISK" | "NO_RISK" | "POTENTIAL_RISK",
-  "explanation": "1-2 sentences"
+  "explanation": "1 sentence"
 }`,
 		},
 		{
