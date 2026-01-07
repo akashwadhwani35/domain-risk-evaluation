@@ -60,10 +60,11 @@ const matchesFilters = (row: EvaluationDTO, filters: FiltersState) => {
     }
   }
   if (filters.recommendation) {
-    // Handle both old and new recommendation formats
-    const rowRec = normalizeRecommendation(row.overall_recommendation);
+    // Match if either trademark or vice recommendation matches the filter
     const filterRec = normalizeRecommendation(filters.recommendation);
-    if (rowRec !== filterRec) {
+    const tmRec = normalizeRecommendation(row.trademark_recommendation);
+    const viceRec = normalizeRecommendation(row.vice_recommendation);
+    if (tmRec !== filterRec && viceRec !== filterRec) {
       return false;
     }
   }
@@ -495,27 +496,28 @@ export default function App() {
   }, [loadBatches]);
 
   const summaryCounts = useMemo(() => {
-    const base = {
-      YES_RISK: 0,
-      POTENTIAL_RISK: 0,
-      NO_RISK: 0,
-    };
+    const tmCounts = { YES_RISK: 0, POTENTIAL_RISK: 0, NO_RISK: 0 };
+    const viceCounts = { YES_RISK: 0, POTENTIAL_RISK: 0, NO_RISK: 0 };
     evaluations.forEach((row) => {
-      const key = normalizeRecommendation(row.overall_recommendation ?? '');
-      if (key in base) {
-        base[key as keyof typeof base] += 1;
+      const tmKey = normalizeRecommendation(row.trademark_recommendation ?? '');
+      if (tmKey in tmCounts) {
+        tmCounts[tmKey as keyof typeof tmCounts] += 1;
+      }
+      const viceKey = normalizeRecommendation(row.vice_recommendation ?? '');
+      if (viceKey in viceCounts) {
+        viceCounts[viceKey as keyof typeof viceCounts] += 1;
       }
     });
-    return base;
+    return { trademark: tmCounts, vice: viceCounts };
   }, [evaluations]);
 
   const summaryItems = useMemo(
     () => [
-      { label: 'Yes Risk', value: summaryCounts.YES_RISK, accent: 'bg-red-100 text-red-800' },
-      { label: 'Potential', value: summaryCounts.POTENTIAL_RISK, accent: 'bg-amber-100 text-amber-800' },
-      { label: 'No Risk', value: summaryCounts.NO_RISK, accent: 'bg-green-100 text-green-800' },
+      { label: 'TM Risk', value: summaryCounts.trademark.YES_RISK + summaryCounts.trademark.POTENTIAL_RISK, accent: 'bg-red-100 text-red-800' },
+      { label: 'Vice Risk', value: summaryCounts.vice.YES_RISK + summaryCounts.vice.POTENTIAL_RISK, accent: 'bg-amber-100 text-amber-800' },
+      { label: 'Total', value: evaluations.length, accent: 'bg-blue-100 text-blue-800' },
     ],
-    [summaryCounts]
+    [summaryCounts, evaluations.length]
   );
 
   const progressPercent = useMemo(() => {
@@ -1050,9 +1052,14 @@ export default function App() {
                           <li key={item.id} className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-4 py-3">
                             <div className="flex items-center justify-between gap-2">
                               <span className="font-medium text-[var(--text)] break-all">{item.domain}</span>
-                              <span className="rounded-md border border-[var(--line)] px-2 py-1 text-sm text-[var(--muted)]">
-                                {item.overall_recommendation}
-                              </span>
+                              <div className="flex gap-1">
+                                <span className="rounded-md border border-[var(--line)] px-2 py-1 text-xs text-[var(--muted)]">
+                                  TM: {item.trademark_recommendation}
+                                </span>
+                                <span className="rounded-md border border-[var(--line)] px-2 py-1 text-xs text-[var(--muted)]">
+                                  Vice: {item.vice_recommendation}
+                                </span>
+                              </div>
                             </div>
                             <p className="mt-2 text-sm text-[var(--muted)] break-words line-clamp-2">{item.explanation || '—'}</p>
                           </li>

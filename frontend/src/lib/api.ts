@@ -17,7 +17,9 @@ import type {
   OverrideHistoryResponse,
   OverridesResponse,
   FeedbacksResponse,
-  FeedbackStatsResponse
+  FeedbackStatsResponse,
+  TrainingTermsResponse,
+  TrainingTermDTO
 } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:2000/api';
@@ -161,4 +163,19 @@ export async function fetchFeedbackStats(batchId?: number): Promise<FeedbackStat
   }
   const response = await client.get<FeedbackStatsResponse>('/feedback/stats', { params });
   return response.data;
+}
+
+// Training Terms API functions
+export async function fetchTrainingTerms(): Promise<TrainingTermsResponse> {
+  const response = await client.get<TrainingTermsResponse>('/training-terms');
+  return response.data;
+}
+
+export async function createTrainingTerm(term: string, classification: 'YES_RISK' | 'NO_RISK'): Promise<TrainingTermDTO> {
+  const response = await client.post<TrainingTermDTO>('/training-terms', { term, classification });
+  return response.data;
+}
+
+export async function deleteTrainingTerm(id: number): Promise<void> {
+  await client.delete(`/training-terms/${id}`);
 }

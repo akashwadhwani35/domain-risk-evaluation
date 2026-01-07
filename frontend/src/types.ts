@@ -13,15 +13,16 @@ export interface UploadResponse {
 export interface EvaluationDTO {
   id: number;
   domain: string;
-  trademark_score: number;
+  // Trademark classification
+  trademark_recommendation: string; // YES_RISK, POTENTIAL_RISK, NO_RISK
+  trademark_confidence: number;
   trademark_type: string;
   matched_trademark: string;
-  trademark_confidence: number;
-  vice_score: number;
-  vice_categories: string[];
+  // Vice classification
+  vice_recommendation: string; // YES_RISK, POTENTIAL_RISK, NO_RISK
   vice_confidence: number;
-  overall_recommendation: string;
-  confidence: number;
+  vice_categories: string[];
+  // Metadata
   created_at: string;
   explanation: string;
   commercial_override: boolean;
@@ -131,9 +132,9 @@ export interface EvaluationStatusResponse {
 export interface StatsResponse {
   total_evaluations: number;
   total_batches: number;
-  recommendation_counts: RecommendationStats;
-  trademark_distribution: ScoreBucket[];
-  vice_distribution: ScoreBucket[];
+  // Separate recommendation counts for Trademark and Vice
+  trademark_recommendation_counts: RecommendationStats;
+  vice_recommendation_counts: RecommendationStats;
   top_trademark_risks: EvaluationDTO[];
   top_vice_risks: EvaluationDTO[];
   recent_batches: BatchSummary[];
@@ -147,20 +148,20 @@ export interface RecommendationStats {
   no_risk: number;
 }
 
-export interface ScoreBucket {
-  score: number;
-  count: number;
-}
-
 export interface BatchSummary {
   id: number;
   name: string;
   owner: string;
   total_domains: number;
   processed_domains: number;
-  yes_risk_count: number;
-  potential_count: number;
-  no_risk_count: number;
+  // Separate Trademark counts
+  trademark_yes_risk: number;
+  trademark_potential_risk: number;
+  trademark_no_risk: number;
+  // Separate Vice counts
+  vice_yes_risk: number;
+  vice_potential_risk: number;
+  vice_no_risk: number;
   created_at: string;
   last_evaluated_at?: string | null;
 }
@@ -175,24 +176,25 @@ export interface TimeSeriesPoint {
 export interface OverrideRequest {
   overridden_by: string;
   reason: string;
-  override_recommendation: string;
+  // Separate trademark and vice recommendations
+  override_trademark_recommendation?: string; // YES_RISK, POTENTIAL_RISK, NO_RISK
+  override_vice_recommendation?: string; // YES_RISK, POTENTIAL_RISK, NO_RISK
   override_explanation?: string;
-  override_trademark_score?: number | null;
-  override_vice_score?: number | null;
 }
 
 export interface OverrideDTO {
   id: number;
   evaluation_id: number;
   domain: string;
-  original_trademark_score: number;
-  original_vice_score: number;
-  original_recommendation: string;
+  // Original values
+  original_trademark_recommendation: string;
+  original_vice_recommendation: string;
   original_explanation: string;
-  override_trademark_score: number | null;
-  override_vice_score: number | null;
-  override_recommendation: string;
+  // Override values
+  override_trademark_recommendation: string;
+  override_vice_recommendation: string;
   override_explanation: string;
+  // Audit
   overridden_by: string;
   reason: string;
   feedback_applied: boolean;
@@ -215,10 +217,10 @@ export interface FeedbackDTO {
   override_id: number;
   domain: string;
   second_level_label: string;
-  corrected_recommendation: string;
+  // Separate trademark and vice recommendations
+  corrected_trademark_recommendation: string;
+  corrected_vice_recommendation: string;
   corrected_explanation: string;
-  corrected_trademark_score: number | null;
-  corrected_vice_score: number | null;
   retrieval_count: number;
   last_retrieved_at: string | null;
   created_at: string;
@@ -272,4 +274,17 @@ export interface FeedbackStatsResponse {
   confidence_calibration: ConfidenceCalibrationBucket[];
   overrides_over_time: TimeSeriesPoint[];
   accuracy_over_time: TimeSeriesPoint[];
+}
+
+// AI Training Terms
+export interface TrainingTermDTO {
+  id: number;
+  term: string;
+  classification: string;
+  created_at: string;
+}
+
+export interface TrainingTermsResponse {
+  yes_risk: TrainingTermDTO[];
+  no_risk: TrainingTermDTO[];
 }

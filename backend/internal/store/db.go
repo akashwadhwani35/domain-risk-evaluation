@@ -30,7 +30,7 @@ func Open(path string, silent bool) (*Database, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
-	if err := db.AutoMigrate(&Mark{}, &Domain{}, &Evaluation{}, &CommercialSale{}, &PopularMark{}, &CSVBatch{}, &BatchRequest{}, &DomainBatch{}, &JobState{}, &EvaluationOverride{}, &FeedbackEmbedding{}); err != nil {
+	if err := db.AutoMigrate(&Mark{}, &Domain{}, &Evaluation{}, &CommercialSale{}, &PopularMark{}, &CSVBatch{}, &BatchRequest{}, &DomainBatch{}, &JobState{}, &EvaluationOverride{}, &FeedbackEmbedding{}, &AITrainingTerm{}); err != nil {
 		return nil, fmt.Errorf("auto migrate: %w", err)
 	}
 	if err := db.Exec("PRAGMA journal_mode=WAL").Error; err != nil {
@@ -111,14 +111,18 @@ func (d *Database) SaveEvaluation(e *Evaluation) error {
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	// Derive recommendations from scores before saving
+	e.DeriveRecommendations()
 	columns := []string{
 		"trademark_score",
 		"trademark_type",
 		"matched_trademark",
 		"trademark_confidence",
+		"trademark_recommendation",
 		"vice_score",
 		"vice_categories_json",
 		"vice_confidence",
+		"vice_recommendation",
 		"overall_recommendation",
 		"processing_time_ms",
 		"explanation",
@@ -694,11 +698,20 @@ type BatchSummary struct {
 	Owner            string     `json:"owner"`
 	TotalDomains     int        `json:"total_domains"`
 	ProcessedDomains int        `json:"processed_domains"`
-	YesRiskCount     int64      `json:"yes_risk_count"`
-	PotentialCount   int64      `json:"potential_count"`
-	NoRiskCount      int64      `json:"no_risk_count"`
-	CreatedAt        time.Time  `json:"created_at"`
-	LastEvaluatedAt  *time.Time `json:"last_evaluated_at"`
+	// Trademark recommendation counts
+	TrademarkYesRisk       int64 `json:"trademark_yes_risk"`
+	TrademarkPotentialRisk int64 `json:"trademark_potential_risk"`
+	TrademarkNoRisk        int64 `json:"trademark_no_risk"`
+	// Vice recommendation counts
+	ViceYesRisk       int64 `json:"vice_yes_risk"`
+	VicePotentialRisk int64 `json:"vice_potential_risk"`
+	ViceNoRisk        int64 `json:"vice_no_risk"`
+	// Legacy overall counts (kept for backwards compatibility)
+	YesRiskCount   int64      `json:"yes_risk_count"`
+	PotentialCount int64      `json:"potential_count"`
+	NoRiskCount    int64      `json:"no_risk_count"`
+	CreatedAt      time.Time  `json:"created_at"`
+	LastEvaluatedAt *time.Time `json:"last_evaluated_at"`
 }
 
 // TimeSeriesPoint represents a date and value for time-series data.
@@ -741,6 +754,84 @@ func (d *Database) GetRecommendationCounts(batchID uint) (map[string]int64, erro
 		case "POTENTIAL_RISK", "REVIEW", "ALLOW_WITH_CAUTION":
 			result["POTENTIAL_RISK"] += row.Count
 		case "NO_RISK", "ALLOW":
+			result["NO_RISK"] += row.Count
+		}
+	}
+	return result, nil
+}
+
+// GetTrademarkRecommendationCounts returns counts grouped by trademark_recommendation.
+// For existing records without trademark_recommendation, derives from trademark_score.
+func (d *Database) GetTrademarkRecommendationCounts(batchID uint) (map[string]int64, error) {
+	result := map[string]int64{
+		"YES_RISK":       0,
+		"POTENTIAL_RISK": 0,
+		"NO_RISK":        0,
+	}
+
+	// First try getting from trademark_recommendation field
+	query := d.gorm.Model(&Evaluation{}).
+		Select("COALESCE(NULLIF(trademark_recommendation, ''), CASE WHEN trademark_score >= 4 THEN 'YES_RISK' WHEN trademark_score >= 2 THEN 'POTENTIAL_RISK' ELSE 'NO_RISK' END) as recommendation, COUNT(*) as count").
+		Group("recommendation")
+
+	if batchID > 0 {
+		query = query.Where("domain_normalized IN (SELECT domain_normalized FROM domain_batches WHERE batch_id = ?)", batchID)
+	}
+
+	var rows []RecommendationCount
+	if err := query.Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	for _, row := range rows {
+		if row.Recommendation == "" {
+			continue
+		}
+		switch row.Recommendation {
+		case "YES_RISK":
+			result["YES_RISK"] += row.Count
+		case "POTENTIAL_RISK":
+			result["POTENTIAL_RISK"] += row.Count
+		case "NO_RISK":
+			result["NO_RISK"] += row.Count
+		}
+	}
+	return result, nil
+}
+
+// GetViceRecommendationCounts returns counts grouped by vice_recommendation.
+// For existing records without vice_recommendation, derives from vice_score.
+func (d *Database) GetViceRecommendationCounts(batchID uint) (map[string]int64, error) {
+	result := map[string]int64{
+		"YES_RISK":       0,
+		"POTENTIAL_RISK": 0,
+		"NO_RISK":        0,
+	}
+
+	// First try getting from vice_recommendation field, fall back to score
+	query := d.gorm.Model(&Evaluation{}).
+		Select("COALESCE(NULLIF(vice_recommendation, ''), CASE WHEN vice_score >= 4 THEN 'YES_RISK' WHEN vice_score >= 2 THEN 'POTENTIAL_RISK' ELSE 'NO_RISK' END) as recommendation, COUNT(*) as count").
+		Group("recommendation")
+
+	if batchID > 0 {
+		query = query.Where("domain_normalized IN (SELECT domain_normalized FROM domain_batches WHERE batch_id = ?)", batchID)
+	}
+
+	var rows []RecommendationCount
+	if err := query.Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	for _, row := range rows {
+		if row.Recommendation == "" {
+			continue
+		}
+		switch row.Recommendation {
+		case "YES_RISK":
+			result["YES_RISK"] += row.Count
+		case "POTENTIAL_RISK":
+			result["POTENTIAL_RISK"] += row.Count
+		case "NO_RISK":
 			result["NO_RISK"] += row.Count
 		}
 	}
@@ -905,12 +996,28 @@ func (d *Database) GetBatchSummaries(limit int) ([]BatchSummary, error) {
 			LastEvaluatedAt:  b.LastEvaluatedAt,
 		}
 
-		// Get recommendation counts for this batch
+		// Get legacy overall counts
 		counts, err := d.GetRecommendationCounts(b.ID)
 		if err == nil {
 			summary.YesRiskCount = counts["YES_RISK"]
 			summary.PotentialCount = counts["POTENTIAL_RISK"]
 			summary.NoRiskCount = counts["NO_RISK"]
+		}
+
+		// Get trademark recommendation counts
+		tmCounts, err := d.GetTrademarkRecommendationCounts(b.ID)
+		if err == nil {
+			summary.TrademarkYesRisk = tmCounts["YES_RISK"]
+			summary.TrademarkPotentialRisk = tmCounts["POTENTIAL_RISK"]
+			summary.TrademarkNoRisk = tmCounts["NO_RISK"]
+		}
+
+		// Get vice recommendation counts
+		viceCounts, err := d.GetViceRecommendationCounts(b.ID)
+		if err == nil {
+			summary.ViceYesRisk = viceCounts["YES_RISK"]
+			summary.VicePotentialRisk = viceCounts["POTENTIAL_RISK"]
+			summary.ViceNoRisk = viceCounts["NO_RISK"]
 		}
 
 		summaries = append(summaries, summary)
@@ -1007,15 +1114,35 @@ func (d *Database) ApplyOverrideToEvaluation(evaluationID uint, override *Evalua
 	}
 	now := time.Now()
 	updates := map[string]any{
-		"overall_recommendation": override.OverrideRecommendation,
-		"manual_override":        true,
-		"last_override_at":       &now,
+		"manual_override":  true,
+		"last_override_at": &now,
+	}
+	// Handle trademark recommendation override
+	if override.OverrideTrademarkRecommendation != "" {
+		updates["trademark_recommendation"] = override.OverrideTrademarkRecommendation
 	}
 	if override.OverrideTrademarkScore != nil {
 		updates["trademark_score"] = *override.OverrideTrademarkScore
 	}
+	// Handle vice recommendation override
+	if override.OverrideViceRecommendation != "" {
+		updates["vice_recommendation"] = override.OverrideViceRecommendation
+	}
 	if override.OverrideViceScore != nil {
 		updates["vice_score"] = *override.OverrideViceScore
+	}
+	// Derive overall from the two (for legacy compatibility)
+	tmRec := override.OverrideTrademarkRecommendation
+	viceRec := override.OverrideViceRecommendation
+	if tmRec != "" || viceRec != "" {
+		// Calculate overall: YES_RISK if either is YES_RISK, else highest
+		overall := "NO_RISK"
+		if tmRec == "YES_RISK" || viceRec == "YES_RISK" {
+			overall = "YES_RISK"
+		} else if tmRec == "POTENTIAL_RISK" || viceRec == "POTENTIAL_RISK" {
+			overall = "POTENTIAL_RISK"
+		}
+		updates["overall_recommendation"] = overall
 	}
 	if override.OverrideExplanation != "" {
 		updates["explanation"] = override.OverrideExplanation
@@ -1390,4 +1517,32 @@ func (d *Database) CountFeedbackEmbeddings() (int64, error) {
 		return 0, err
 	}
 	return count, nil
+}
+
+// CreateTrainingTerm adds a new AI training term.
+func (d *Database) CreateTrainingTerm(term *AITrainingTerm) error {
+	return d.gorm.Create(term).Error
+}
+
+// GetTrainingTerms returns all training terms grouped by classification.
+func (d *Database) GetTrainingTerms() ([]AITrainingTerm, error) {
+	var terms []AITrainingTerm
+	if err := d.gorm.Order("classification ASC, term ASC").Find(&terms).Error; err != nil {
+		return nil, err
+	}
+	return terms, nil
+}
+
+// GetTrainingTermsByClassification returns terms for a specific classification.
+func (d *Database) GetTrainingTermsByClassification(classification string) ([]AITrainingTerm, error) {
+	var terms []AITrainingTerm
+	if err := d.gorm.Where("classification = ?", classification).Order("term ASC").Find(&terms).Error; err != nil {
+		return nil, err
+	}
+	return terms, nil
+}
+
+// DeleteTrainingTerm removes a training term by ID.
+func (d *Database) DeleteTrainingTerm(id uint) error {
+	return d.gorm.Delete(&AITrainingTerm{}, id).Error
 }

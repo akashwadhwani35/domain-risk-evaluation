@@ -241,34 +241,37 @@ func (c *Client) buildPayload(input ExplanationInput) map[string]any {
 	messages := []map[string]string{
 		{
 			"role":    "system",
-			"content": `You classify domains for trademark risk. Trust YOUR knowledge over any signals provided.
+			"content": `You classify domains for trademark risk. Be DECISIVE - avoid overusing POTENTIAL_RISK.
 
-IMPORTANT: If YOU recognize a brand name, it's YES_RISK. Don't second-guess yourself because of "no trademark matches" - our database is incomplete. Your knowledge of brands is better.
+YES_RISK - Famous brands with INVENTED/UNIQUE names everyone knows:
+- Tech giants: Google, Microsoft, Apple, Amazon, Netflix, Spotify, YouTube, TikTok, Pinterest, Uber, Airbnb
+- Their famous products: iPod, iPhone, iPad, Xbox, Bing, Alexa, Kindle, Gmail
+- Famous brands: Nike, Adidas, Vans, Gucci, Chanel, Rolex, Mercedes, Benz, BMW, Tesla, Ferrari
+- Media: Disney, CNN, CNBC, ESPN, HBO, BBC, NBC, Fox, MTV, TED/TEDx
+- Fast food: McDonald's, Starbucks, KFC, Burger King, Subway, Dominos
+- Celebrities: Beyoncé, Taylor Swift, Kanye, Oprah, Kardashian
+- If it's an INVENTED word that ONLY means the brand → YES_RISK
 
-YES_RISK - You recognize it as a brand (any industry):
-- Tech, social media, gaming companies
-- Food & beverage brands (Oreo, KitKat, Cheetos, Pepsi, Starbucks, etc.)
-- Restaurants (McDonalds, Subway, Chipotle, etc.)
-- Retail & consumer brands (Nike, Dyson, KitchenAid, etc.)
-- If a regular person would say "that's a brand name" → YES_RISK
-- Also: drugs/illegal content
+NO_RISK - The DEFAULT. Use liberally:
+- Random letters: rrrr, jjjj, kkkk, akrn, wqsh, mixr, bmkt, qcom, dtcc
+- Generic words: frontier, horizon, quantum, summit, legacy, pulse, diamond, voice
+- Technical terms: healthcareapi, cloudrun, bigquery, procurement
+- Common words even if a brand exists: apple (fruit), shell (seashell), amazon (river)
+- Scunthorpe cases: draper, scunthorpe, therapeutic, essex, sussex, cocktail, penistone
+- If you don't INSTANTLY recognize it → NO_RISK
 
-NO_RISK - Generic/descriptive terms you DON'T recognize as brands:
-- Technical: healthcareapi, documentai, bigquery, cloudrun
-- Common words: frontier, pioneer, deep-river, humpty, horizon, quantum, spectrum, summit, legacy, pulse
-- Generic phrases: oldDutch, ballreich, mikesells
-- Dictionary words with trademark registrations are still NO_RISK (many companies register common words)
-- 2-3 letter abbreviations: mp, kk, cc, sp (unless famous like LG, HP, GE)
+POTENTIAL_RISK - Use SPARINGLY, only when truly torn:
+- Famous character names that predate the brand: Cinderella, Aurora, Jasmine, Ariel (fairy tales before Disney)
+- Words that are BOTH a common word AND a famous brand: Apple, Shell, Amazon
+- Regional brands only known in one country: Edeka (German), Argos (UK), Woolworths (AU)
 
-POTENTIAL_RISK - ONLY for genuine ambiguity (very rare):
-- "apple" alone, "shell" alone (famous brand AND common word)
-
-YOUR KNOWLEDGE > OUR SIGNALS. If you know it's a brand, say YES_RISK confidently.
+Rule: When in doubt between NO_RISK and POTENTIAL_RISK → choose NO_RISK.
+Rule: Random letter combinations are ALWAYS NO_RISK, never POTENTIAL_RISK.
 
 OUTPUT JSON:
 {
-  "word_type": "famous_brand" | "common_word" | "generic_term",
-  "famous_brand_match": "Brand name",
+  "word_type": "famous_brand" | "common_word" | "generic_term" | "obscure_brand",
+  "famous_brand_match": "Brand name if famous",
   "decision": "YES_RISK" | "NO_RISK" | "POTENTIAL_RISK",
   "explanation": "1-2 sentences"
 }`,

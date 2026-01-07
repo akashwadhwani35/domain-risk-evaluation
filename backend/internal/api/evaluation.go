@@ -748,7 +748,11 @@ func (s *Server) evaluateDomain(
 		decision.ViceScore = &viceCopy
 
 		// Trust the AI's decision - it has structured thinking to classify word types
-		finalRec := strings.ToUpper(strings.TrimSpace(decision.Recommendation))
+		// Check new field first (decision.Decision), then fall back to legacy (decision.Recommendation)
+		finalRec := strings.ToUpper(strings.TrimSpace(decision.Decision))
+		if finalRec == "" {
+			finalRec = strings.ToUpper(strings.TrimSpace(decision.Recommendation))
+		}
 		if finalRec == "" {
 			finalRec = "POTENTIAL_RISK" // Default if AI didn't respond
 		}
@@ -805,21 +809,32 @@ func (s *Server) evaluateDomain(
 		"ai_fallback":        aiFallback,
 	}).Info("AI decision completed")
 
+	// Derive separate trademark and vice recommendations
+	// AI decision is primarily about trademark risk; vice is derived from vice scorer
+	tmRec := overall.Recommendation
+	viceRec := store.ScoreToRecommendation(viceResult.Score)
+	// If vice was the reason for YES_RISK, keep trademark at its natural level
+	if viceResult.Score >= 4 && trademarkResult.Score < 4 {
+		tmRec = store.ScoreToRecommendation(trademarkResult.Score)
+	}
+
 	eval := store.Evaluation{
-		Domain:                domainValue,
-		DomainNormalized:      normalizedKey,
-		TrademarkScore:        trademarkResult.Score,
-		TrademarkType:         trademarkResult.Type,
-		MatchedTrademark:      trademarkResult.MatchedTrademark,
-		TrademarkConfidence:   trademarkResult.Confidence,
-		ViceScore:             viceResult.Score,
-		ViceConfidence:        viceResult.Confidence,
-		OverallRecommendation: overall.Recommendation,
-		ProcessingTimeMs:      timer.ElapsedMs(),
-		Explanation:           strings.TrimSpace(decision.Narrative),
-		CommercialOverride:    commercialOverride,
-		CommercialSource:      commercialSource,
-		CommercialSimilarity:  commercialSimilarity,
+		Domain:                  domainValue,
+		DomainNormalized:        normalizedKey,
+		TrademarkScore:          trademarkResult.Score,
+		TrademarkType:           trademarkResult.Type,
+		MatchedTrademark:        trademarkResult.MatchedTrademark,
+		TrademarkConfidence:     trademarkResult.Confidence,
+		TrademarkRecommendation: tmRec,
+		ViceScore:               viceResult.Score,
+		ViceConfidence:          viceResult.Confidence,
+		ViceRecommendation:      viceRec,
+		OverallRecommendation:   overall.Recommendation,
+		ProcessingTimeMs:        timer.ElapsedMs(),
+		Explanation:             strings.TrimSpace(decision.Narrative),
+		CommercialOverride:      commercialOverride,
+		CommercialSource:        commercialSource,
+		CommercialSimilarity:    commercialSimilarity,
 	}
 	eval.SetViceCategories(viceResult.Categories)
 

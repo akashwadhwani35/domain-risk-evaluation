@@ -229,6 +229,28 @@ func BuildFeedbackText(domain, secondLevel string, trademarkScore, viceScore int
 	return sb.String()
 }
 
+// BuildFeedbackTextWithRecs constructs the text representation using recommendations instead of scores.
+// This is the new format that captures separate trademark and vice recommendations.
+func BuildFeedbackTextWithRecs(domain, secondLevel, trademarkRec, viceRec, explanation string) string {
+	var sb strings.Builder
+
+	sb.WriteString(fmt.Sprintf("Domain: %s\n", domain))
+	sb.WriteString(fmt.Sprintf("Second-level label: %s\n", secondLevel))
+	sb.WriteString(fmt.Sprintf("Trademark recommendation: %s\n", trademarkRec))
+	sb.WriteString(fmt.Sprintf("Vice recommendation: %s\n", viceRec))
+
+	if explanation != "" {
+		// Include explanation but limit length to avoid token bloat
+		exp := explanation
+		if len(exp) > 500 {
+			exp = exp[:497] + "..."
+		}
+		sb.WriteString(fmt.Sprintf("Explanation: %s\n", exp))
+	}
+
+	return sb.String()
+}
+
 // GetFeedbackIDs returns the embedding IDs from retrieval results.
 func GetFeedbackIDs(results []FeedbackRetrievalResult) []uint {
 	ids := make([]uint, len(results))

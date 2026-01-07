@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
-import type { FeedbackStatsResponse, OverrideDTO } from '../types';
-import { fetchFeedbackStats, fetchOverrides } from '../lib/api';
+import type { FeedbackStatsResponse, OverrideDTO, TrainingTermDTO } from '../types';
+import { fetchFeedbackStats, fetchOverrides, fetchTrainingTerms, createTrainingTerm, deleteTrainingTerm } from '../lib/api';
 
 dayjs.extend(relativeTime);
 
@@ -14,6 +14,8 @@ export default function AILearningDashboard({ batchId }: AILearningDashboardProp
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<FeedbackStatsResponse | null>(null);
   const [recentOverrides, setRecentOverrides] = useState<OverrideDTO[]>([]);
+  const [yesRiskTerms, setYesRiskTerms] = useState<TrainingTermDTO[]>([]);
+  const [noRiskTerms, setNoRiskTerms] = useState<TrainingTermDTO[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -21,12 +23,15 @@ export default function AILearningDashboard({ batchId }: AILearningDashboardProp
       setLoading(true);
       setError(null);
       try {
-        const [statsData, overridesData] = await Promise.all([
+        const [statsData, overridesData, termsData] = await Promise.all([
           fetchFeedbackStats(batchId),
-          fetchOverrides(0, 10)
+          fetchOverrides(0, 10),
+          fetchTrainingTerms()
         ]);
         setStats(statsData);
         setRecentOverrides(overridesData.items);
+        setYesRiskTerms(termsData.yes_risk);
+        setNoRiskTerms(termsData.no_risk);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load AI learning data');
       } finally {
@@ -35,6 +40,32 @@ export default function AILearningDashboard({ batchId }: AILearningDashboardProp
     }
     loadData();
   }, [batchId]);
+
+  const handleAddTerm = async (term: string, classification: 'YES_RISK' | 'NO_RISK') => {
+    try {
+      const newTerm = await createTrainingTerm(term, classification);
+      if (classification === 'YES_RISK') {
+        setYesRiskTerms(prev => [...prev, newTerm]);
+      } else {
+        setNoRiskTerms(prev => [...prev, newTerm]);
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to add term');
+    }
+  };
+
+  const handleDeleteTerm = async (id: number, classification: 'YES_RISK' | 'NO_RISK') => {
+    try {
+      await deleteTrainingTerm(id);
+      if (classification === 'YES_RISK') {
+        setYesRiskTerms(prev => prev.filter(t => t.id !== id));
+      } else {
+        setNoRiskTerms(prev => prev.filter(t => t.id !== id));
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete term');
+    }
+  };
 
   if (loading) {
     return (
@@ -46,7 +77,7 @@ export default function AILearningDashboard({ batchId }: AILearningDashboardProp
 
   if (error) {
     return (
-      <div className="rounded-3xl border border-red-200 bg-red-50 p-8">
+      <div className="rounded-xl border border-red-200 bg-red-50 p-8">
         <p className="text-red-600">{error}</p>
       </div>
     );
@@ -57,13 +88,13 @@ export default function AILearningDashboard({ batchId }: AILearningDashboardProp
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* Overview Metrics */}
-      <section className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
+      <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <MetricCard
           title="Total Overrides"
           value={stats.total_overrides.toLocaleString()}
-          subtitle={`${stats.total_feedback_embeddings} feedback embeddings`}
+          subtitle={`${stats.total_feedback_embeddings} embeddings`}
         />
         <MetricCard
           title="Override Rate"
@@ -80,14 +111,39 @@ export default function AILearningDashboard({ batchId }: AILearningDashboardProp
         <MetricCard
           title="Feedback Impact"
           value={stats.feedback_impact_score.toFixed(2)}
-          subtitle="avg retrievals per embedding"
+          subtitle="avg retrievals"
         />
       </section>
 
+      {/* Training Terms - Two Columns */}
+      <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-6">
+        <h3 className="mb-2 text-lg font-semibold text-[var(--text)]">Teach AI</h3>
+        <p className="mb-4 text-sm text-[var(--muted)]">Add terms to guide AI in future evaluations</p>
+
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+          {/* YES_RISK Column */}
+          <TermColumn
+            title="YES_RISK"
+            terms={yesRiskTerms}
+            onAdd={(term) => handleAddTerm(term, 'YES_RISK')}
+            onDelete={(id) => handleDeleteTerm(id, 'YES_RISK')}
+            color="red"
+          />
+
+          {/* NO_RISK Column */}
+          <TermColumn
+            title="NO_RISK"
+            terms={noRiskTerms}
+            onAdd={(term) => handleAddTerm(term, 'NO_RISK')}
+            onDelete={(id) => handleDeleteTerm(id, 'NO_RISK')}
+            color="green"
+          />
+        </div>
+      </section>
+
       {/* Correction Patterns */}
-      <section className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-6 shadow-[0_16px_40px_rgba(18,18,18,0.06)]">
+      <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-6">
         <h3 className="mb-4 text-lg font-semibold text-[var(--text)]">Correction Patterns</h3>
-        <p className="mb-4 text-sm text-[var(--muted)]">How often the AI is corrected from one recommendation to another</p>
 
         {stats.correction_patterns.length === 0 ? (
           <p className="text-sm text-[var(--muted)]">No corrections recorded yet.</p>
@@ -115,110 +171,109 @@ export default function AILearningDashboard({ batchId }: AILearningDashboardProp
             ))}
           </div>
         )}
-
-        <div className="mt-6 grid grid-cols-2 gap-4 border-t border-[var(--line)] pt-6">
-          <div className="text-center">
-            <div className="text-2xl font-bold text-[var(--text)]">{stats.ai_accuracy.block_to_allow_rate.toFixed(1)}%</div>
-            <div className="text-xs text-[var(--muted)]">BLOCK → ALLOW corrections</div>
-          </div>
-          <div className="text-center">
-            <div className="text-2xl font-bold text-[var(--text)]">{stats.ai_accuracy.allow_to_block_rate.toFixed(1)}%</div>
-            <div className="text-xs text-[var(--muted)]">ALLOW → BLOCK corrections</div>
-          </div>
-        </div>
       </section>
 
-      {/* Confidence Calibration */}
-      <section className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-6 shadow-[0_16px_40px_rgba(18,18,18,0.06)]">
-        <h3 className="mb-4 text-lg font-semibold text-[var(--text)]">Confidence Calibration</h3>
-        <p className="mb-4 text-sm text-[var(--muted)]">
-          Accuracy per confidence level — ideally, high confidence should correlate with high accuracy
-        </p>
+      {/* Recent Overrides */}
+      <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-6">
+        <h3 className="mb-4 text-lg font-semibold text-[var(--text)]">Recent Overrides</h3>
 
-        {stats.confidence_calibration.length === 0 ? (
-          <p className="text-sm text-[var(--muted)]">No calibration data available.</p>
+        {recentOverrides.length === 0 ? (
+          <p className="text-sm text-[var(--muted)]">No recent overrides.</p>
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-5">
-            {stats.confidence_calibration.map((bucket, idx) => (
-              <div key={idx} className="rounded-2xl border border-[var(--line)] bg-[var(--surface-2)] p-4 text-center">
-                <div className="text-xs text-[var(--muted)]">
-                  {(bucket.confidence_min * 100).toFixed(0)}% - {(bucket.confidence_max * 100).toFixed(0)}%
+          <div className="grid gap-3 md:grid-cols-2">
+            {recentOverrides.map((override) => (
+              <div key={override.id} className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)] p-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-[var(--text)] text-sm truncate">{override.domain}</span>
+                  <span className="text-xs text-[var(--muted)]">
+                    {dayjs(override.created_at).fromNow()}
+                  </span>
                 </div>
-                <div className="mt-2 text-2xl font-bold text-[var(--text)]">
-                  {bucket.accuracy_percent.toFixed(0)}%
-                </div>
-                <div className="text-xs text-[var(--muted)]">
-                  {bucket.overridden_count}/{bucket.total_count} overridden
+                <div className="mt-1 flex items-center gap-2 text-sm">
+                  <span className="text-xs text-[var(--muted)]">TM:</span>
+                  <RecommendationBadge recommendation={override.original_trademark_recommendation} size="sm" />
+                  <span className="text-[var(--muted)]">→</span>
+                  <RecommendationBadge recommendation={override.override_trademark_recommendation} size="sm" />
                 </div>
               </div>
             ))}
           </div>
         )}
       </section>
+    </div>
+  );
+}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Top Overriders */}
-        <section className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-6 shadow-[0_16px_40px_rgba(18,18,18,0.06)]">
-          <h3 className="mb-4 text-lg font-semibold text-[var(--text)]">Top Overriders</h3>
+function TermColumn({
+  title,
+  terms,
+  onAdd,
+  onDelete,
+  color
+}: {
+  title: string;
+  terms: TrainingTermDTO[];
+  onAdd: (term: string) => void;
+  onDelete: (id: number) => void;
+  color: 'red' | 'green';
+}) {
+  const [newTerm, setNewTerm] = useState('');
 
-          {stats.user_stats.length === 0 ? (
-            <p className="text-sm text-[var(--muted)]">No user data available.</p>
-          ) : (
-            <div className="space-y-4">
-              {stats.user_stats.map((user, idx) => (
-                <div key={idx} className="flex items-center justify-between rounded-xl border border-[var(--line)] bg-[var(--surface-2)] p-3">
-                  <div>
-                    <div className="font-medium text-[var(--text)]">{user.user}</div>
-                    <div className="text-xs text-[var(--muted)]">{user.most_common_change}</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="font-bold text-[var(--text)]">{user.total_overrides}</div>
-                    <div className="text-xs text-[var(--muted)]">overrides</div>
-                  </div>
-                </div>
-              ))}
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newTerm.trim()) {
+      onAdd(newTerm.trim());
+      setNewTerm('');
+    }
+  };
+
+  const bgColor = color === 'red' ? 'bg-red-50' : 'bg-green-50';
+  const borderColor = color === 'red' ? 'border-red-200' : 'border-green-200';
+  const textColor = color === 'red' ? 'text-red-700' : 'text-green-700';
+  const buttonBg = color === 'red' ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600';
+
+  return (
+    <div className={`rounded-lg border ${borderColor} ${bgColor} p-4`}>
+      <h4 className={`font-semibold ${textColor} mb-3`}>{title}</h4>
+
+      <form onSubmit={handleSubmit} className="flex gap-2 mb-3">
+        <input
+          type="text"
+          value={newTerm}
+          onChange={(e) => setNewTerm(e.target.value)}
+          placeholder="Add term..."
+          className="flex-1 rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
+        />
+        <button
+          type="submit"
+          disabled={!newTerm.trim()}
+          className={`rounded-lg px-3 py-2 text-sm font-medium text-white ${buttonBg} disabled:opacity-50`}
+        >
+          +
+        </button>
+      </form>
+
+      <div className="space-y-2 max-h-64 overflow-y-auto">
+        {terms.length === 0 ? (
+          <p className="text-sm text-[var(--muted)] italic">No terms yet</p>
+        ) : (
+          terms.map((term) => (
+            <div
+              key={term.id}
+              className="flex items-center justify-between rounded-lg bg-white px-3 py-2 border border-[var(--line)]"
+            >
+              <span className="text-sm text-[var(--text)]">{term.term}</span>
+              <button
+                type="button"
+                onClick={() => onDelete(term.id)}
+                className="text-[var(--muted)] hover:text-red-500 text-lg leading-none"
+              >
+                ×
+              </button>
             </div>
-          )}
-        </section>
-
-        {/* Recent Activity */}
-        <section className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-6 shadow-[0_16px_40px_rgba(18,18,18,0.06)]">
-          <h3 className="mb-4 text-lg font-semibold text-[var(--text)]">Recent Overrides</h3>
-
-          {recentOverrides.length === 0 ? (
-            <p className="text-sm text-[var(--muted)]">No recent overrides.</p>
-          ) : (
-            <div className="space-y-3">
-              {recentOverrides.map((override) => (
-                <div key={override.id} className="rounded-xl border border-[var(--line)] bg-[var(--surface-2)] p-3">
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-[var(--text)]">{override.domain}</span>
-                    <span className="text-xs text-[var(--muted)]">
-                      {dayjs(override.created_at).fromNow()}
-                    </span>
-                  </div>
-                  <div className="mt-1 flex items-center gap-2 text-sm">
-                    <RecommendationBadge recommendation={override.original_recommendation} size="sm" />
-                    <span className="text-[var(--muted)]">→</span>
-                    <RecommendationBadge recommendation={override.override_recommendation} size="sm" />
-                    <span className="text-xs text-[var(--muted)]">by {override.overridden_by}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
+          ))
+        )}
       </div>
-
-      {/* Overrides Over Time */}
-      {stats.overrides_over_time.length > 0 && (
-        <section className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-6 shadow-[0_16px_40px_rgba(18,18,18,0.06)]">
-          <h3 className="mb-4 text-lg font-semibold text-[var(--text)]">Override Trend (Last 30 Days)</h3>
-          <div className="h-48">
-            <SimpleChart data={stats.overrides_over_time} />
-          </div>
-        </section>
-      )}
     </div>
   );
 }
@@ -235,10 +290,10 @@ function MetricCard({
   trend?: 'good' | 'neutral' | 'bad';
 }) {
   return (
-    <div className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-6 shadow-[0_16px_40px_rgba(18,18,18,0.06)]">
-      <div className="text-sm text-[var(--muted)]">{title}</div>
-      <div className="mt-2 flex items-baseline gap-2">
-        <span className="text-3xl font-bold text-[var(--text)]">{value}</span>
+    <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4">
+      <div className="text-xs text-[var(--muted)]">{title}</div>
+      <div className="mt-1 flex items-baseline gap-2">
+        <span className="text-2xl font-bold text-[var(--text)]">{value}</span>
         {trend && (
           <span
             className={`text-sm ${
@@ -249,7 +304,7 @@ function MetricCard({
           </span>
         )}
       </div>
-      <div className="mt-1 text-xs text-[var(--muted)]">{subtitle}</div>
+      <div className="text-xs text-[var(--muted)]">{subtitle}</div>
     </div>
   );
 }
@@ -262,17 +317,21 @@ function RecommendationBadge({
   size?: 'sm' | 'md';
 }) {
   const colors: Record<string, string> = {
+    YES_RISK: 'bg-red-100 text-red-700',
+    POTENTIAL_RISK: 'bg-amber-100 text-amber-700',
+    NO_RISK: 'bg-green-100 text-green-700',
     BLOCK: 'bg-red-100 text-red-700',
     REVIEW: 'bg-amber-100 text-amber-700',
-    ALLOW_WITH_CAUTION: 'bg-yellow-100 text-yellow-700',
     ALLOW: 'bg-green-100 text-green-700'
   };
 
   const labels: Record<string, string> = {
-    BLOCK: 'Block',
-    REVIEW: 'Review',
-    ALLOW_WITH_CAUTION: 'Caution',
-    ALLOW: 'Allow'
+    YES_RISK: 'Yes',
+    POTENTIAL_RISK: 'Potential',
+    NO_RISK: 'No',
+    BLOCK: 'Yes',
+    REVIEW: 'Potential',
+    ALLOW: 'No'
   };
 
   const padding = size === 'sm' ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-1 text-xs';
@@ -281,31 +340,5 @@ function RecommendationBadge({
     <span className={`inline-flex items-center rounded-full font-medium ${colors[recommendation] ?? 'bg-gray-100 text-gray-700'} ${padding}`}>
       {labels[recommendation] ?? recommendation}
     </span>
-  );
-}
-
-function SimpleChart({ data }: { data: { date: string; value?: number }[] }) {
-  if (data.length === 0) return null;
-
-  const values = data.map((d) => d.value ?? 0);
-  const maxValue = Math.max(...values, 1);
-
-  return (
-    <div className="flex h-full items-end gap-1">
-      {data.map((point, idx) => {
-        const height = ((point.value ?? 0) / maxValue) * 100;
-        return (
-          <div key={idx} className="group relative flex-1">
-            <div
-              className="w-full rounded-t bg-purple-500 transition-all hover:bg-purple-600"
-              style={{ height: `${Math.max(height, 2)}%` }}
-            />
-            <div className="absolute -top-8 left-1/2 hidden -translate-x-1/2 whitespace-nowrap rounded bg-[var(--text)] px-2 py-1 text-xs text-white group-hover:block">
-              {dayjs(point.date).format('MMM D')}: {point.value?.toFixed(0)}
-            </div>
-          </div>
-        );
-      })}
-    </div>
   );
 }

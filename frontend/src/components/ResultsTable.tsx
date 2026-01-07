@@ -204,21 +204,22 @@ export default function ResultsTable({
         )}
       </div>
 
-      {/* Table - Simplified: Domain, Decision, Explanation, Date */}
+      {/* Table - Bifurcated: Domain, Trademark, Vice, Date */}
       <div className="overflow-x-auto">
         <table className="w-full text-left">
           <thead className="bg-[var(--surface-2)] text-sm text-[var(--muted)] border-b border-[var(--line)]">
             <tr>
               <th className="w-10 px-4 py-3"></th>
               <th className="px-4 py-3 font-medium">Domain</th>
-              <th className="px-4 py-3 font-medium w-36">Decision</th>
+              <th className="px-4 py-3 font-medium w-36">Trademark</th>
+              <th className="px-4 py-3 font-medium w-36">Vice</th>
               <th className="px-4 py-3 font-medium text-right w-32">Date</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--line)]">
             {loading ? (
               <tr>
-                <td colSpan={4} className="px-4 py-12 text-center text-[var(--muted)]">
+                <td colSpan={5} className="px-4 py-12 text-center text-[var(--muted)]">
                   <div className="flex items-center justify-center gap-2">
                     <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
@@ -230,7 +231,7 @@ export default function ResultsTable({
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-4 py-12 text-center text-[var(--muted)]">
+                <td colSpan={5} className="px-4 py-12 text-center text-[var(--muted)]">
                   No results yet. Upload a CSV and run an evaluation.
                 </td>
               </tr>
@@ -274,7 +275,10 @@ export default function ResultsTable({
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        <ScoreBadge label={row.overall_recommendation} />
+                        <ScoreBadge label={row.trademark_recommendation} />
+                      </td>
+                      <td className="px-4 py-3">
+                        <ScoreBadge label={row.vice_recommendation} />
                       </td>
                       <td className="px-4 py-3 text-right text-sm text-[var(--muted)]">
                         {dayjs(row.created_at).format('MMM D, HH:mm')}
@@ -282,7 +286,7 @@ export default function ResultsTable({
                     </tr>
                     {isExpanded && (
                       <tr className="bg-[var(--surface-2)]">
-                        <td colSpan={4} className="px-4 py-4">
+                        <td colSpan={5} className="px-4 py-4">
                           {/* AI Explanation - Main focus */}
                           {row.explanation && (
                             <div className="bg-[var(--surface)] rounded-lg p-4 border border-[var(--line)]">
@@ -291,17 +295,30 @@ export default function ResultsTable({
                             </div>
                           )}
 
-                          {/* Additional Details (collapsed) */}
-                          <div className="mt-4 grid gap-4 md:grid-cols-2">
-                            {/* Word Analysis */}
+                          {/* Additional Details */}
+                          <div className="mt-4 grid gap-4 md:grid-cols-3">
+                            {/* Trademark Analysis */}
                             <div className="bg-[var(--surface)] rounded-lg p-4 border border-[var(--line)]">
-                              <h4 className="font-medium text-[var(--text)] mb-2">Analysis Details</h4>
+                              <h4 className="font-medium text-[var(--text)] mb-2">Trademark Analysis</h4>
                               <div className="space-y-1 text-sm">
-                                <p><span className="text-[var(--muted)]">Trademark Type:</span> <span className="text-[var(--text)]">{row.trademark_type || 'None'}</span></p>
+                                <p><span className="text-[var(--muted)]">Type:</span> <span className="text-[var(--text)]">{row.trademark_type || 'None'}</span></p>
                                 {row.matched_trademark && (
                                   <p><span className="text-[var(--muted)]">Matched:</span> <span className="text-[var(--text)]">{row.matched_trademark}</span></p>
                                 )}
-                                <p><span className="text-[var(--muted)]">Confidence:</span> <span className="text-[var(--text)]">{(row.confidence * 100).toFixed(0)}%</span></p>
+                                <p><span className="text-[var(--muted)]">Confidence:</span> <span className="text-[var(--text)]">{(row.trademark_confidence * 100).toFixed(0)}%</span></p>
+                              </div>
+                            </div>
+
+                            {/* Vice Analysis */}
+                            <div className="bg-[var(--surface)] rounded-lg p-4 border border-[var(--line)]">
+                              <h4 className="font-medium text-[var(--text)] mb-2">Vice Analysis</h4>
+                              <div className="space-y-1 text-sm">
+                                {row.vice_categories && row.vice_categories.length > 0 ? (
+                                  <p><span className="text-[var(--muted)]">Categories:</span> <span className="text-[var(--text)]">{row.vice_categories.join(', ')}</span></p>
+                                ) : (
+                                  <p><span className="text-[var(--muted)]">Categories:</span> <span className="text-[var(--text)]">None</span></p>
+                                )}
+                                <p><span className="text-[var(--muted)]">Confidence:</span> <span className="text-[var(--text)]">{(row.vice_confidence * 100).toFixed(0)}%</span></p>
                               </div>
                             </div>
 

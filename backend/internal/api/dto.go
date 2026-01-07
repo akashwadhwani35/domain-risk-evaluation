@@ -58,26 +58,27 @@ type StartEvaluationResponse struct {
 
 // EvaluationDTO is the API representation for a persisted evaluation.
 type EvaluationDTO struct {
-	ID                    uint       `json:"id"`
-	Domain                string     `json:"domain"`
-	TrademarkScore        int        `json:"trademark_score"`
-	TrademarkType         string     `json:"trademark_type"`
-	MatchedTrademark      string     `json:"matched_trademark"`
-	TrademarkConfidence   float64    `json:"trademark_confidence"`
-	ViceScore             int        `json:"vice_score"`
-	ViceCategories        []string   `json:"vice_categories"`
-	ViceConfidence        float64    `json:"vice_confidence"`
-	OverallRecommendation string     `json:"overall_recommendation"`
-	Confidence            float64    `json:"confidence"`
-	CreatedAt             time.Time  `json:"created_at"`
-	Explanation           string     `json:"explanation"`
-	CommercialOverride    bool       `json:"commercial_override"`
-	CommercialSource      string     `json:"commercial_source"`
-	CommercialSimilarity  float64    `json:"commercial_similarity"`
-	ManualOverride        bool       `json:"manual_override"`
-	OverrideCount         int        `json:"override_count"`
-	LastOverrideAt        *time.Time `json:"last_override_at"`
-	FeedbackUsed          []uint     `json:"feedback_used"`
+	ID     uint   `json:"id"`
+	Domain string `json:"domain"`
+	// Trademark classification
+	TrademarkRecommendation string  `json:"trademark_recommendation"` // YES_RISK, POTENTIAL_RISK, NO_RISK
+	TrademarkConfidence     float64 `json:"trademark_confidence"`
+	TrademarkType           string  `json:"trademark_type"`
+	MatchedTrademark        string  `json:"matched_trademark"`
+	// Vice classification
+	ViceRecommendation string   `json:"vice_recommendation"` // YES_RISK, POTENTIAL_RISK, NO_RISK
+	ViceConfidence     float64  `json:"vice_confidence"`
+	ViceCategories     []string `json:"vice_categories"`
+	// Timestamps and metadata
+	CreatedAt            time.Time  `json:"created_at"`
+	Explanation          string     `json:"explanation"`
+	CommercialOverride   bool       `json:"commercial_override"`
+	CommercialSource     string     `json:"commercial_source"`
+	CommercialSimilarity float64    `json:"commercial_similarity"`
+	ManualOverride       bool       `json:"manual_override"`
+	OverrideCount        int        `json:"override_count"`
+	LastOverrideAt       *time.Time `json:"last_override_at"`
+	FeedbackUsed         []uint     `json:"feedback_used"`
 }
 
 // BatchDTO represents metadata for an uploaded CSV dataset.
@@ -114,27 +115,35 @@ type BatchRequestDTO struct {
 
 // FromModel converts a store.Evaluation into the DTO representation.
 func FromModel(e store.Evaluation) EvaluationDTO {
+	// Derive recommendations from scores if not set (for backward compatibility)
+	tmRec := e.TrademarkRecommendation
+	if tmRec == "" {
+		tmRec = store.ScoreToRecommendation(e.TrademarkScore)
+	}
+	viceRec := e.ViceRecommendation
+	if viceRec == "" {
+		viceRec = store.ScoreToRecommendation(e.ViceScore)
+	}
+
 	return EvaluationDTO{
-		ID:                    e.ID,
-		Domain:                e.Domain,
-		TrademarkScore:        e.TrademarkScore,
-		TrademarkType:         e.TrademarkType,
-		MatchedTrademark:      e.MatchedTrademark,
-		TrademarkConfidence:   round2(e.TrademarkConfidence),
-		ViceScore:             e.ViceScore,
-		ViceCategories:        e.ViceCategories(),
-		ViceConfidence:        round2(e.ViceConfidence),
-		OverallRecommendation: e.OverallRecommendation,
-		Confidence:            round2(minFloat(e.TrademarkConfidence, e.ViceConfidence)),
-		CreatedAt:             e.CreatedAt,
-		Explanation:           strings.TrimSpace(e.Explanation),
-		CommercialOverride:    e.CommercialOverride,
-		CommercialSource:      e.CommercialSource,
-		CommercialSimilarity:  round2(e.CommercialSimilarity),
-		ManualOverride:        e.ManualOverride,
-		OverrideCount:         e.OverrideCount,
-		LastOverrideAt:        e.LastOverrideAt,
-		FeedbackUsed:          e.FeedbackUsed(),
+		ID:                      e.ID,
+		Domain:                  e.Domain,
+		TrademarkRecommendation: tmRec,
+		TrademarkConfidence:     round2(e.TrademarkConfidence),
+		TrademarkType:           e.TrademarkType,
+		MatchedTrademark:        e.MatchedTrademark,
+		ViceRecommendation:      viceRec,
+		ViceConfidence:          round2(e.ViceConfidence),
+		ViceCategories:          e.ViceCategories(),
+		CreatedAt:               e.CreatedAt,
+		Explanation:             strings.TrimSpace(e.Explanation),
+		CommercialOverride:      e.CommercialOverride,
+		CommercialSource:        e.CommercialSource,
+		CommercialSimilarity:    round2(e.CommercialSimilarity),
+		ManualOverride:          e.ManualOverride,
+		OverrideCount:           e.OverrideCount,
+		LastOverrideAt:          e.LastOverrideAt,
+		FeedbackUsed:            e.FeedbackUsed(),
 	}
 }
 
@@ -206,51 +215,60 @@ type EvaluateStatusResponse struct {
 
 // OverrideRequest is the request body for creating an evaluation override.
 type OverrideRequest struct {
-	OverriddenBy           string  `json:"overridden_by" binding:"required"`
-	Reason                 string  `json:"reason" binding:"required"`
-	OverrideRecommendation string  `json:"override_recommendation" binding:"required"`
-	OverrideExplanation    string  `json:"override_explanation"`
-	OverrideTrademarkScore *int    `json:"override_trademark_score"`
-	OverrideViceScore      *int    `json:"override_vice_score"`
+	OverriddenBy string `json:"overridden_by" binding:"required"`
+	Reason       string `json:"reason" binding:"required"`
+	// Separate trademark and vice recommendations
+	OverrideTrademarkRecommendation string `json:"override_trademark_recommendation"` // YES_RISK, POTENTIAL_RISK, NO_RISK
+	OverrideViceRecommendation      string `json:"override_vice_recommendation"`      // YES_RISK, POTENTIAL_RISK, NO_RISK
+	OverrideExplanation             string `json:"override_explanation"`
 }
 
 // OverrideDTO is the API representation of an evaluation override.
 type OverrideDTO struct {
-	ID                     uint      `json:"id"`
-	EvaluationID           uint      `json:"evaluation_id"`
-	Domain                 string    `json:"domain"`
-	OriginalTrademarkScore int       `json:"original_trademark_score"`
-	OriginalViceScore      int       `json:"original_vice_score"`
-	OriginalRecommendation string    `json:"original_recommendation"`
-	OriginalExplanation    string    `json:"original_explanation"`
-	OverrideTrademarkScore *int      `json:"override_trademark_score"`
-	OverrideViceScore      *int      `json:"override_vice_score"`
-	OverrideRecommendation string    `json:"override_recommendation"`
-	OverrideExplanation    string    `json:"override_explanation"`
-	OverriddenBy           string    `json:"overridden_by"`
-	Reason                 string    `json:"reason"`
-	FeedbackApplied        bool      `json:"feedback_applied"`
-	CreatedAt              time.Time `json:"created_at"`
+	ID           uint   `json:"id"`
+	EvaluationID uint   `json:"evaluation_id"`
+	Domain       string `json:"domain"`
+	// Original values
+	OriginalTrademarkRecommendation string `json:"original_trademark_recommendation"`
+	OriginalViceRecommendation      string `json:"original_vice_recommendation"`
+	OriginalExplanation             string `json:"original_explanation"`
+	// Override values
+	OverrideTrademarkRecommendation string `json:"override_trademark_recommendation"`
+	OverrideViceRecommendation      string `json:"override_vice_recommendation"`
+	OverrideExplanation             string `json:"override_explanation"`
+	// Audit
+	OverriddenBy    string    `json:"overridden_by"`
+	Reason          string    `json:"reason"`
+	FeedbackApplied bool      `json:"feedback_applied"`
+	CreatedAt       time.Time `json:"created_at"`
 }
 
 // OverrideFromModel converts a store.EvaluationOverride into a DTO.
 func OverrideFromModel(o store.EvaluationOverride) OverrideDTO {
+	// Derive original recommendations from scores if not set (backward compat)
+	origTmRec := o.OriginalTrademarkRecommendation
+	if origTmRec == "" {
+		origTmRec = store.ScoreToRecommendation(o.OriginalTrademarkScore)
+	}
+	origViceRec := o.OriginalViceRecommendation
+	if origViceRec == "" {
+		origViceRec = store.ScoreToRecommendation(o.OriginalViceScore)
+	}
+
 	return OverrideDTO{
-		ID:                     o.ID,
-		EvaluationID:           o.EvaluationID,
-		Domain:                 o.DomainNormalized,
-		OriginalTrademarkScore: o.OriginalTrademarkScore,
-		OriginalViceScore:      o.OriginalViceScore,
-		OriginalRecommendation: o.OriginalRecommendation,
-		OriginalExplanation:    o.OriginalExplanation,
-		OverrideTrademarkScore: o.OverrideTrademarkScore,
-		OverrideViceScore:      o.OverrideViceScore,
-		OverrideRecommendation: o.OverrideRecommendation,
-		OverrideExplanation:    o.OverrideExplanation,
-		OverriddenBy:           o.OverriddenBy,
-		Reason:                 o.Reason,
-		FeedbackApplied:        o.FeedbackApplied,
-		CreatedAt:              o.CreatedAt,
+		ID:                              o.ID,
+		EvaluationID:                    o.EvaluationID,
+		Domain:                          o.DomainNormalized,
+		OriginalTrademarkRecommendation: origTmRec,
+		OriginalViceRecommendation:      origViceRec,
+		OriginalExplanation:             o.OriginalExplanation,
+		OverrideTrademarkRecommendation: o.OverrideTrademarkRecommendation,
+		OverrideViceRecommendation:      o.OverrideViceRecommendation,
+		OverrideExplanation:             o.OverrideExplanation,
+		OverriddenBy:                    o.OverriddenBy,
+		Reason:                          o.Reason,
+		FeedbackApplied:                 o.FeedbackApplied,
+		CreatedAt:                       o.CreatedAt,
 	}
 }
 
@@ -268,33 +286,31 @@ type OverridesResponse struct {
 
 // FeedbackDTO is the API representation of a feedback embedding.
 type FeedbackDTO struct {
-	ID                      uint       `json:"id"`
-	OverrideID              uint       `json:"override_id"`
-	Domain                  string     `json:"domain"`
-	SecondLevelLabel        string     `json:"second_level_label"`
-	CorrectedRecommendation string     `json:"corrected_recommendation"`
-	CorrectedExplanation    string     `json:"corrected_explanation"`
-	CorrectedTrademarkScore *int       `json:"corrected_trademark_score"`
-	CorrectedViceScore      *int       `json:"corrected_vice_score"`
-	RetrievalCount          int        `json:"retrieval_count"`
-	LastRetrievedAt         *time.Time `json:"last_retrieved_at"`
-	CreatedAt               time.Time  `json:"created_at"`
+	ID                               uint       `json:"id"`
+	OverrideID                       uint       `json:"override_id"`
+	Domain                           string     `json:"domain"`
+	SecondLevelLabel                 string     `json:"second_level_label"`
+	CorrectedTrademarkRecommendation string     `json:"corrected_trademark_recommendation"`
+	CorrectedViceRecommendation      string     `json:"corrected_vice_recommendation"`
+	CorrectedExplanation             string     `json:"corrected_explanation"`
+	RetrievalCount                   int        `json:"retrieval_count"`
+	LastRetrievedAt                  *time.Time `json:"last_retrieved_at"`
+	CreatedAt                        time.Time  `json:"created_at"`
 }
 
 // FeedbackFromModel converts a store.FeedbackEmbedding into a DTO.
 func FeedbackFromModel(f store.FeedbackEmbedding) FeedbackDTO {
 	return FeedbackDTO{
-		ID:                      f.ID,
-		OverrideID:              f.OverrideID,
-		Domain:                  f.DomainNormalized,
-		SecondLevelLabel:        f.SecondLevelLabel,
-		CorrectedRecommendation: f.CorrectedRecommendation,
-		CorrectedExplanation:    f.CorrectedExplanation,
-		CorrectedTrademarkScore: f.CorrectedTrademarkScore,
-		CorrectedViceScore:      f.CorrectedViceScore,
-		RetrievalCount:          f.RetrievalCount,
-		LastRetrievedAt:         f.LastRetrievedAt,
-		CreatedAt:               f.CreatedAt,
+		ID:                               f.ID,
+		OverrideID:                       f.OverrideID,
+		Domain:                           f.DomainNormalized,
+		SecondLevelLabel:                 f.SecondLevelLabel,
+		CorrectedTrademarkRecommendation: f.CorrectedTrademarkRecommendation,
+		CorrectedViceRecommendation:      f.CorrectedViceRecommendation,
+		CorrectedExplanation:             f.CorrectedExplanation,
+		RetrievalCount:                   f.RetrievalCount,
+		LastRetrievedAt:                  f.LastRetrievedAt,
+		CreatedAt:                        f.CreatedAt,
 	}
 }
 
@@ -357,4 +373,24 @@ type FeedbackStatsResponse struct {
 	ConfidenceCalibration   []ConfidenceCalibrationBucket `json:"confidence_calibration"`
 	OverridesOverTime       []TimeSeriesPoint             `json:"overrides_over_time"`
 	AccuracyOverTime        []TimeSeriesPoint             `json:"accuracy_over_time"`
+}
+
+// TrainingTermDTO represents an AI training term.
+type TrainingTermDTO struct {
+	ID             uint      `json:"id"`
+	Term           string    `json:"term"`
+	Classification string    `json:"classification"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+// TrainingTermsResponse contains training terms grouped by classification.
+type TrainingTermsResponse struct {
+	YesRisk []TrainingTermDTO `json:"yes_risk"`
+	NoRisk  []TrainingTermDTO `json:"no_risk"`
+}
+
+// CreateTrainingTermRequest is the request body for adding a training term.
+type CreateTrainingTermRequest struct {
+	Term           string `json:"term" binding:"required"`
+	Classification string `json:"classification" binding:"required"`
 }

@@ -84,13 +84,18 @@ type Evaluation struct {
 	ID                    uint   `gorm:"primaryKey"`
 	Domain                string `gorm:"size:255;index"`
 	DomainNormalized      string `gorm:"size:255;uniqueIndex"`
-	TrademarkScore        int
-	TrademarkType         string `gorm:"size:32"`
-	MatchedTrademark      string `gorm:"size:255"`
-	TrademarkConfidence   float64
-	ViceScore             int
-	ViceCategoriesJSON    string `gorm:"type:text"`
+	// Trademark fields
+	TrademarkScore          int     // Internal score (0-5) for AI use
+	TrademarkType           string  `gorm:"size:32"`
+	MatchedTrademark        string  `gorm:"size:255"`
+	TrademarkConfidence     float64
+	TrademarkRecommendation string  `gorm:"size:32;index"` // YES_RISK, POTENTIAL_RISK, NO_RISK
+	// Vice fields
+	ViceScore             int     // Internal score (0-5) for AI use
+	ViceCategoriesJSON    string  `gorm:"type:text"`
 	ViceConfidence        float64
+	ViceRecommendation    string  `gorm:"size:32;index"` // YES_RISK, POTENTIAL_RISK, NO_RISK
+	// Legacy field (kept for backwards compatibility, derived from TM + Vice)
 	OverallRecommendation string `gorm:"size:32"`
 	ProcessingTimeMs      int64
 	Explanation           string `gorm:"type:text"`
@@ -134,16 +139,20 @@ type EvaluationOverride struct {
 	DomainNormalized string `gorm:"size:255;index"`
 
 	// Original values (snapshot at time of override)
-	OriginalTrademarkScore int
-	OriginalViceScore      int
-	OriginalRecommendation string `gorm:"size:32"`
-	OriginalExplanation    string `gorm:"type:text"`
+	OriginalTrademarkScore          int
+	OriginalTrademarkRecommendation string `gorm:"size:32"`
+	OriginalViceScore               int
+	OriginalViceRecommendation      string `gorm:"size:32"`
+	OriginalRecommendation          string `gorm:"size:32"` // Legacy overall
+	OriginalExplanation             string `gorm:"type:text"`
 
-	// Override values (nil means no change for scores)
-	OverrideTrademarkScore *int   `gorm:"type:integer"`
-	OverrideViceScore      *int   `gorm:"type:integer"`
-	OverrideRecommendation string `gorm:"size:32;not null"`
-	OverrideExplanation    string `gorm:"type:text"`
+	// Override values
+	OverrideTrademarkScore          *int   `gorm:"type:integer"`
+	OverrideTrademarkRecommendation string `gorm:"size:32"` // YES_RISK, POTENTIAL_RISK, NO_RISK
+	OverrideViceScore               *int   `gorm:"type:integer"`
+	OverrideViceRecommendation      string `gorm:"size:32"` // YES_RISK, POTENTIAL_RISK, NO_RISK
+	OverrideRecommendation          string `gorm:"size:32"` // Legacy overall (derived)
+	OverrideExplanation             string `gorm:"type:text"`
 
 	// Audit fields
 	OverriddenBy string `gorm:"size:128;index;not null"`
@@ -172,10 +181,12 @@ type FeedbackEmbedding struct {
 	EmbeddingDimension int    `gorm:"default:1536"`
 
 	// Feedback metadata (denormalized for retrieval)
-	CorrectedRecommendation string `gorm:"size:32"`
-	CorrectedExplanation    string `gorm:"type:text"`
-	CorrectedTrademarkScore *int   `gorm:"type:integer"`
-	CorrectedViceScore      *int   `gorm:"type:integer"`
+	CorrectedTrademarkRecommendation string `gorm:"size:32"`
+	CorrectedViceRecommendation      string `gorm:"size:32"`
+	CorrectedRecommendation          string `gorm:"size:32"` // Legacy overall
+	CorrectedExplanation             string `gorm:"type:text"`
+	CorrectedTrademarkScore          *int   `gorm:"type:integer"`
+	CorrectedViceScore               *int   `gorm:"type:integer"`
 
 	// Usage tracking
 	RetrievalCount  int        `gorm:"default:0"`
@@ -288,4 +299,40 @@ func (e *Evaluation) ViceCategories() []string {
 		return nil
 	}
 	return out
+}
+
+// ScoreToRecommendation converts a numeric score (0-5) to a recommendation string.
+// 4-5 → YES_RISK (high risk)
+// 2-3 → POTENTIAL_RISK (needs review)
+// 0-1 → NO_RISK (safe)
+func ScoreToRecommendation(score int) string {
+	if score >= 4 {
+		return "YES_RISK"
+	}
+	if score >= 2 {
+		return "POTENTIAL_RISK"
+	}
+	return "NO_RISK"
+}
+
+// DeriveRecommendations populates TrademarkRecommendation and ViceRecommendation from scores.
+func (e *Evaluation) DeriveRecommendations() {
+	e.TrademarkRecommendation = ScoreToRecommendation(e.TrademarkScore)
+	e.ViceRecommendation = ScoreToRecommendation(e.ViceScore)
+	// Legacy overall: YES_RISK if either is YES_RISK, else highest risk level
+	if e.TrademarkRecommendation == "YES_RISK" || e.ViceRecommendation == "YES_RISK" {
+		e.OverallRecommendation = "YES_RISK"
+	} else if e.TrademarkRecommendation == "POTENTIAL_RISK" || e.ViceRecommendation == "POTENTIAL_RISK" {
+		e.OverallRecommendation = "POTENTIAL_RISK"
+	} else {
+		e.OverallRecommendation = "NO_RISK"
+	}
+}
+
+// AITrainingTerm stores user-defined terms to teach the AI.
+type AITrainingTerm struct {
+	ID             uint      `gorm:"primaryKey"`
+	Term           string    `gorm:"size:256;not null;uniqueIndex"`
+	Classification string    `gorm:"size:32;not null;index"` // YES_RISK or NO_RISK
+	CreatedAt      time.Time `gorm:"autoCreateTime"`
 }

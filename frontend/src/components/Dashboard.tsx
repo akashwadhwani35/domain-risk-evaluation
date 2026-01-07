@@ -170,13 +170,10 @@ function BatchOverviewTable({
               Progress
             </th>
             <th className="text-right py-2 px-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-[#dc2626]">
-              Yes Risk
+              TM Risk
             </th>
             <th className="text-right py-2 px-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-[#d97706]">
-              Potential
-            </th>
-            <th className="text-right py-2 px-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-[#16a34a]">
-              No Risk
+              Vice Risk
             </th>
           </tr>
         </thead>
@@ -188,10 +185,9 @@ function BatchOverviewTable({
                 : 0;
             const isSelected = batch.id === selectedBatchId;
 
-            // Use 3-tier counts directly
-            const yesRisk = batch.yes_risk_count ?? 0;
-            const potentialRisk = batch.potential_count ?? 0;
-            const noRisk = batch.no_risk_count ?? 0;
+            // Calculate combined trademark and vice risks
+            const tmRisks = (batch.trademark_yes_risk ?? 0) + (batch.trademark_potential_risk ?? 0);
+            const viceRisks = (batch.vice_yes_risk ?? 0) + (batch.vice_potential_risk ?? 0);
 
             return (
               <tr
@@ -233,13 +229,10 @@ function BatchOverviewTable({
                   </div>
                 </td>
                 <td className="py-2 px-2 text-right text-[#dc2626] font-medium">
-                  {formatNumber(yesRisk)}
+                  {formatNumber(tmRisks)}
                 </td>
                 <td className="py-2 px-2 text-right text-[#d97706] font-medium">
-                  {formatNumber(potentialRisk)}
-                </td>
-                <td className="py-2 px-2 text-right text-[#16a34a] font-medium">
-                  {formatNumber(noRisk)}
+                  {formatNumber(viceRisks)}
                 </td>
               </tr>
             );
@@ -379,12 +372,22 @@ export default function Dashboard({ selectedBatch, onSelectBatch, onSwitchToResu
     return null;
   }
 
-  // Use 3-tier recommendation counts directly
-  const riskCounts = {
-    yes_risk: stats.recommendation_counts.yes_risk ?? 0,
-    potential_risk: stats.recommendation_counts.potential_risk ?? 0,
-    no_risk: stats.recommendation_counts.no_risk ?? 0
+  // Separate Trademark and Vice recommendation counts
+  const trademarkCounts = {
+    yes_risk: stats.trademark_recommendation_counts?.yes_risk ?? 0,
+    potential_risk: stats.trademark_recommendation_counts?.potential_risk ?? 0,
+    no_risk: stats.trademark_recommendation_counts?.no_risk ?? 0
   };
+
+  const viceCounts = {
+    yes_risk: stats.vice_recommendation_counts?.yes_risk ?? 0,
+    potential_risk: stats.vice_recommendation_counts?.potential_risk ?? 0,
+    no_risk: stats.vice_recommendation_counts?.no_risk ?? 0
+  };
+
+  // Calculate totals for the stat cards
+  const totalTrademarkRisks = trademarkCounts.yes_risk + trademarkCounts.potential_risk;
+  const totalViceRisks = viceCounts.yes_risk + viceCounts.potential_risk;
 
   return (
     <div className="space-y-6">
@@ -408,30 +411,34 @@ export default function Dashboard({ selectedBatch, onSelectBatch, onSwitchToResu
       {/* Stat Cards Row */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard label="Total Evaluated" value={stats.total_evaluations} />
+        <StatCard label="Total Batches" value={stats.total_batches} />
         <StatCard
-          label="Yes Risk"
-          value={riskCounts.yes_risk}
+          label="Trademark Risks"
+          value={totalTrademarkRisks}
           accent="bg-red-50"
         />
         <StatCard
-          label="Potential Risk"
-          value={riskCounts.potential_risk}
+          label="Vice Risks"
+          value={totalViceRisks}
           accent="bg-amber-50"
-        />
-        <StatCard
-          label="No Risk"
-          value={riskCounts.no_risk}
-          accent="bg-green-50"
         />
       </div>
 
-      {/* Risk Distribution Chart */}
-      <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
-        <h3 className="font-semibold text-[var(--text)] mb-4">
-          Risk Distribution
-        </h3>
-        <RiskDistributionChart data={riskCounts} />
-      </section>
+      {/* Risk Distribution Charts - Two separate pie charts */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
+          <h3 className="font-semibold text-[var(--text)] mb-4">
+            Trademark Risk Distribution
+          </h3>
+          <RiskDistributionChart data={trademarkCounts} />
+        </section>
+        <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
+          <h3 className="font-semibold text-[var(--text)] mb-4">
+            Vice Risk Distribution
+          </h3>
+          <RiskDistributionChart data={viceCounts} />
+        </section>
+      </div>
 
       {/* Batch Overview */}
       {stats.recent_batches && stats.recent_batches.length > 0 && (

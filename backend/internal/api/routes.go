@@ -261,6 +261,11 @@ func (s *Server) Router() (*gin.Engine, error) {
 		api.GET("/overrides", s.handleListOverrides)
 		api.GET("/feedback", s.handleListFeedback)
 		api.GET("/feedback/stats", s.handleGetFeedbackStats)
+
+		// AI Training Terms
+		api.GET("/training-terms", s.handleGetTrainingTerms)
+		api.POST("/training-terms", s.handleCreateTrainingTerm)
+		api.DELETE("/training-terms/:id", s.handleDeleteTrainingTerm)
 	}
 
 	return r, nil
@@ -986,7 +991,7 @@ func (s *Server) handleExportCSV(c *gin.Context) {
 	c.Header("Content-Type", "text/csv")
 
 	writer := csv.NewWriter(c.Writer)
-	headers := []string{"domain", "trademark_score", "trademark_type", "matched_trademark", "vice_score", "vice_categories", "overall_recommendation", "confidence", "ai_explanation", "commercial_override", "commercial_source", "commercial_similarity"}
+	headers := []string{"domain", "trademark_recommendation", "trademark_confidence", "trademark_type", "matched_trademark", "vice_recommendation", "vice_confidence", "vice_categories", "ai_explanation", "commercial_override", "commercial_source", "commercial_similarity"}
 	if err := writer.Write(headers); err != nil {
 		return
 	}
@@ -994,13 +999,13 @@ func (s *Server) handleExportCSV(c *gin.Context) {
 		dto := FromModel(row)
 		line := []string{
 			dto.Domain,
-			strconv.Itoa(dto.TrademarkScore),
+			dto.TrademarkRecommendation,
+			fmt.Sprintf("%.2f", dto.TrademarkConfidence),
 			dto.TrademarkType,
 			dto.MatchedTrademark,
-			strconv.Itoa(dto.ViceScore),
+			dto.ViceRecommendation,
+			fmt.Sprintf("%.2f", dto.ViceConfidence),
 			strings.Join(dto.ViceCategories, "|"),
-			dto.OverallRecommendation,
-			fmt.Sprintf("%.2f", dto.Confidence),
 			dto.Explanation,
 			strconv.FormatBool(dto.CommercialOverride),
 			dto.CommercialSource,
@@ -1384,16 +1389,18 @@ func firstNonEmpty(values ...string) string {
 
 // StatsResponse contains aggregated dashboard statistics.
 type StatsResponse struct {
-	TotalEvaluations      int64                    `json:"total_evaluations"`
-	TotalBatches          int64                    `json:"total_batches"`
-	RecommendationCounts  RecommendationStats      `json:"recommendation_counts"`
-	TrademarkDistribution []ScoreBucketDTO         `json:"trademark_distribution"`
-	ViceDistribution      []ScoreBucketDTO         `json:"vice_distribution"`
-	TopTrademarkRisks     []EvaluationDTO          `json:"top_trademark_risks"`
-	TopViceRisks          []EvaluationDTO          `json:"top_vice_risks"`
-	RecentBatches         []store.BatchSummary     `json:"recent_batches"`
-	AvgProcessingTimeMs   float64                  `json:"avg_processing_time_ms"`
-	EvaluationsOverTime   []store.TimeSeriesPoint  `json:"evaluations_over_time"`
+	TotalEvaluations               int64                   `json:"total_evaluations"`
+	TotalBatches                   int64                   `json:"total_batches"`
+	TrademarkRecommendationCounts  RecommendationStats     `json:"trademark_recommendation_counts"`
+	ViceRecommendationCounts       RecommendationStats     `json:"vice_recommendation_counts"`
+	RecommendationCounts           RecommendationStats     `json:"recommendation_counts"` // Legacy overall
+	TrademarkDistribution          []ScoreBucketDTO        `json:"trademark_distribution"`
+	ViceDistribution               []ScoreBucketDTO        `json:"vice_distribution"`
+	TopTrademarkRisks              []EvaluationDTO         `json:"top_trademark_risks"`
+	TopViceRisks                   []EvaluationDTO         `json:"top_vice_risks"`
+	RecentBatches                  []store.BatchSummary    `json:"recent_batches"`
+	AvgProcessingTimeMs            float64                 `json:"avg_processing_time_ms"`
+	EvaluationsOverTime            []store.TimeSeriesPoint `json:"evaluations_over_time"`
 }
 
 // RecommendationStats holds counts per recommendation category (3-tier system).
@@ -1433,10 +1440,24 @@ func (s *Server) handleStats(c *gin.Context) {
 		return
 	}
 
-	// Get recommendation counts
+	// Get legacy overall recommendation counts
 	recCounts, err := s.db.GetRecommendationCounts(batchID)
 	if err != nil {
 		s.renderError(c, http.StatusInternalServerError, fmt.Errorf("recommendation counts: %w", err))
+		return
+	}
+
+	// Get trademark recommendation counts
+	tmRecCounts, err := s.db.GetTrademarkRecommendationCounts(batchID)
+	if err != nil {
+		s.renderError(c, http.StatusInternalServerError, fmt.Errorf("trademark recommendation counts: %w", err))
+		return
+	}
+
+	// Get vice recommendation counts
+	viceRecCounts, err := s.db.GetViceRecommendationCounts(batchID)
+	if err != nil {
+		s.renderError(c, http.StatusInternalServerError, fmt.Errorf("vice recommendation counts: %w", err))
 		return
 	}
 
@@ -1516,6 +1537,16 @@ func (s *Server) handleStats(c *gin.Context) {
 	response := StatsResponse{
 		TotalEvaluations: totalEvaluations,
 		TotalBatches:     totalBatches,
+		TrademarkRecommendationCounts: RecommendationStats{
+			YesRisk:       tmRecCounts["YES_RISK"],
+			PotentialRisk: tmRecCounts["POTENTIAL_RISK"],
+			NoRisk:        tmRecCounts["NO_RISK"],
+		},
+		ViceRecommendationCounts: RecommendationStats{
+			YesRisk:       viceRecCounts["YES_RISK"],
+			PotentialRisk: viceRecCounts["POTENTIAL_RISK"],
+			NoRisk:        viceRecCounts["NO_RISK"],
+		},
 		RecommendationCounts: RecommendationStats{
 			YesRisk:       recCounts["YES_RISK"],
 			PotentialRisk: recCounts["POTENTIAL_RISK"],
@@ -1581,4 +1612,93 @@ func (s *Server) listTLDs(limit int) ([]string, int64, bool, error) {
 	s.tldCacheMu.Unlock()
 
 	return tlds, total, truncated, nil
+}
+
+// handleGetTrainingTerms returns all AI training terms.
+func (s *Server) handleGetTrainingTerms(c *gin.Context) {
+	terms, err := s.db.GetTrainingTerms()
+	if err != nil {
+		s.renderError(c, http.StatusInternalServerError, err)
+		return
+	}
+
+	// Group by classification
+	yesRisk := make([]TrainingTermDTO, 0)
+	noRisk := make([]TrainingTermDTO, 0)
+	for _, t := range terms {
+		dto := TrainingTermDTO{
+			ID:             t.ID,
+			Term:           t.Term,
+			Classification: t.Classification,
+			CreatedAt:      t.CreatedAt,
+		}
+		if t.Classification == "YES_RISK" {
+			yesRisk = append(yesRisk, dto)
+		} else {
+			noRisk = append(noRisk, dto)
+		}
+	}
+
+	c.JSON(http.StatusOK, TrainingTermsResponse{
+		YesRisk: yesRisk,
+		NoRisk:  noRisk,
+	})
+}
+
+// handleCreateTrainingTerm adds a new AI training term.
+func (s *Server) handleCreateTrainingTerm(c *gin.Context) {
+	var req CreateTrainingTermRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		s.renderError(c, http.StatusBadRequest, err)
+		return
+	}
+
+	term := strings.TrimSpace(strings.ToLower(req.Term))
+	if term == "" {
+		s.renderError(c, http.StatusBadRequest, errors.New("term is required"))
+		return
+	}
+
+	classification := strings.ToUpper(strings.TrimSpace(req.Classification))
+	if classification != "YES_RISK" && classification != "NO_RISK" {
+		s.renderError(c, http.StatusBadRequest, errors.New("classification must be YES_RISK or NO_RISK"))
+		return
+	}
+
+	trainingTerm := &store.AITrainingTerm{
+		Term:           term,
+		Classification: classification,
+	}
+
+	if err := s.db.CreateTrainingTerm(trainingTerm); err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint") {
+			s.renderError(c, http.StatusConflict, errors.New("term already exists"))
+			return
+		}
+		s.renderError(c, http.StatusInternalServerError, err)
+		return
+	}
+
+	c.JSON(http.StatusCreated, TrainingTermDTO{
+		ID:             trainingTerm.ID,
+		Term:           trainingTerm.Term,
+		Classification: trainingTerm.Classification,
+		CreatedAt:      trainingTerm.CreatedAt,
+	})
+}
+
+// handleDeleteTrainingTerm removes an AI training term.
+func (s *Server) handleDeleteTrainingTerm(c *gin.Context) {
+	id, err := parseUintParam(c.Param("id"))
+	if err != nil {
+		s.renderError(c, http.StatusBadRequest, err)
+		return
+	}
+
+	if err := s.db.DeleteTrainingTerm(id); err != nil {
+		s.renderError(c, http.StatusInternalServerError, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"deleted": true})
 }

@@ -32,34 +32,34 @@ func (s *Server) handleCreateOverride(c *gin.Context) {
 		return
 	}
 
-	// Validate and normalize recommendation
-	req.OverrideRecommendation = strings.ToUpper(strings.TrimSpace(req.OverrideRecommendation))
-	switch req.OverrideRecommendation {
-	case "YES_RISK", "NO_RISK", "POTENTIAL_RISK":
-		// New 3-tier values - accepted as-is
-	case "BLOCK":
-		req.OverrideRecommendation = "YES_RISK"
-	case "REVIEW", "ALLOW_WITH_CAUTION":
-		req.OverrideRecommendation = "POTENTIAL_RISK"
-	case "ALLOW":
-		req.OverrideRecommendation = "NO_RISK"
-	default:
-		s.renderError(c, http.StatusBadRequest, errors.New("invalid recommendation: must be YES_RISK, NO_RISK, or POTENTIAL_RISK"))
-		return
+	// Validate and normalize trademark recommendation if provided
+	req.OverrideTrademarkRecommendation = strings.ToUpper(strings.TrimSpace(req.OverrideTrademarkRecommendation))
+	if req.OverrideTrademarkRecommendation != "" {
+		switch req.OverrideTrademarkRecommendation {
+		case "YES_RISK", "NO_RISK", "POTENTIAL_RISK":
+			// Valid
+		default:
+			s.renderError(c, http.StatusBadRequest, errors.New("invalid trademark recommendation: must be YES_RISK, NO_RISK, or POTENTIAL_RISK"))
+			return
+		}
 	}
 
-	// Validate scores if provided
-	if req.OverrideTrademarkScore != nil {
-		if *req.OverrideTrademarkScore < 0 || *req.OverrideTrademarkScore > 5 {
-			s.renderError(c, http.StatusBadRequest, errors.New("trademark score must be between 0 and 5"))
+	// Validate and normalize vice recommendation if provided
+	req.OverrideViceRecommendation = strings.ToUpper(strings.TrimSpace(req.OverrideViceRecommendation))
+	if req.OverrideViceRecommendation != "" {
+		switch req.OverrideViceRecommendation {
+		case "YES_RISK", "NO_RISK", "POTENTIAL_RISK":
+			// Valid
+		default:
+			s.renderError(c, http.StatusBadRequest, errors.New("invalid vice recommendation: must be YES_RISK, NO_RISK, or POTENTIAL_RISK"))
 			return
 		}
 	}
-	if req.OverrideViceScore != nil {
-		if *req.OverrideViceScore < 0 || *req.OverrideViceScore > 5 {
-			s.renderError(c, http.StatusBadRequest, errors.New("vice score must be between 0 and 5"))
-			return
-		}
+
+	// Require at least one recommendation to be overridden
+	if req.OverrideTrademarkRecommendation == "" && req.OverrideViceRecommendation == "" {
+		s.renderError(c, http.StatusBadRequest, errors.New("at least one of trademark or vice recommendation must be provided"))
+		return
 	}
 
 	// Get the current evaluation
@@ -73,21 +73,51 @@ func (s *Server) handleCreateOverride(c *gin.Context) {
 		return
 	}
 
+	// Derive original recommendations if not stored
+	origTmRec := evaluation.TrademarkRecommendation
+	if origTmRec == "" {
+		origTmRec = store.ScoreToRecommendation(evaluation.TrademarkScore)
+	}
+	origViceRec := evaluation.ViceRecommendation
+	if origViceRec == "" {
+		origViceRec = store.ScoreToRecommendation(evaluation.ViceScore)
+	}
+
+	// If user didn't override one, keep the original
+	overrideTmRec := req.OverrideTrademarkRecommendation
+	if overrideTmRec == "" {
+		overrideTmRec = origTmRec
+	}
+	overrideViceRec := req.OverrideViceRecommendation
+	if overrideViceRec == "" {
+		overrideViceRec = origViceRec
+	}
+
+	// Derive overall recommendation from the two
+	overrideOverall := "NO_RISK"
+	if overrideTmRec == "YES_RISK" || overrideViceRec == "YES_RISK" {
+		overrideOverall = "YES_RISK"
+	} else if overrideTmRec == "POTENTIAL_RISK" || overrideViceRec == "POTENTIAL_RISK" {
+		overrideOverall = "POTENTIAL_RISK"
+	}
+
 	// Create the override record with original values snapshot
 	override := &store.EvaluationOverride{
-		EvaluationID:           evaluationID,
-		DomainNormalized:       evaluation.DomainNormalized,
-		OriginalTrademarkScore: evaluation.TrademarkScore,
-		OriginalViceScore:      evaluation.ViceScore,
-		OriginalRecommendation: evaluation.OverallRecommendation,
-		OriginalExplanation:    evaluation.Explanation,
-		OverrideTrademarkScore: req.OverrideTrademarkScore,
-		OverrideViceScore:      req.OverrideViceScore,
-		OverrideRecommendation: req.OverrideRecommendation,
-		OverrideExplanation:    strings.TrimSpace(req.OverrideExplanation),
-		OverriddenBy:           strings.TrimSpace(req.OverriddenBy),
-		Reason:                 strings.TrimSpace(req.Reason),
-		FeedbackApplied:        false,
+		EvaluationID:                    evaluationID,
+		DomainNormalized:                evaluation.DomainNormalized,
+		OriginalTrademarkScore:          evaluation.TrademarkScore,
+		OriginalTrademarkRecommendation: origTmRec,
+		OriginalViceScore:               evaluation.ViceScore,
+		OriginalViceRecommendation:      origViceRec,
+		OriginalRecommendation:          evaluation.OverallRecommendation,
+		OriginalExplanation:             evaluation.Explanation,
+		OverrideTrademarkRecommendation: overrideTmRec,
+		OverrideViceRecommendation:      overrideViceRec,
+		OverrideRecommendation:          overrideOverall,
+		OverrideExplanation:             strings.TrimSpace(req.OverrideExplanation),
+		OverriddenBy:                    strings.TrimSpace(req.OverriddenBy),
+		Reason:                          strings.TrimSpace(req.Reason),
+		FeedbackApplied:                 false,
 	}
 
 	// Create the override and apply it to the evaluation
@@ -107,11 +137,13 @@ func (s *Server) handleCreateOverride(c *gin.Context) {
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"evaluation_id":  evaluationID,
-		"domain":         evaluation.Domain,
-		"overridden_by":  override.OverriddenBy,
-		"from_rec":       override.OriginalRecommendation,
-		"to_rec":         override.OverrideRecommendation,
+		"evaluation_id": evaluationID,
+		"domain":        evaluation.Domain,
+		"overridden_by": override.OverriddenBy,
+		"tm_from":       origTmRec,
+		"tm_to":         overrideTmRec,
+		"vice_from":     origViceRec,
+		"vice_to":       overrideViceRec,
 	}).Info("evaluation override created")
 
 	c.JSON(http.StatusCreated, OverrideFromModel(*override))
@@ -125,27 +157,16 @@ func (s *Server) generateFeedbackEmbedding(override *store.EvaluationOverride, e
 	// Extract second level label from domain
 	secondLevel := extractSecondLevel(evaluation.Domain)
 
-	// Determine the corrected scores
-	trademarkScore := override.OriginalTrademarkScore
-	if override.OverrideTrademarkScore != nil {
-		trademarkScore = *override.OverrideTrademarkScore
-	}
-	viceScore := override.OriginalViceScore
-	if override.OverrideViceScore != nil {
-		viceScore = *override.OverrideViceScore
-	}
-
-	// Build the text to embed
+	// Build the text to embed using recommendations
 	explanation := override.OverrideExplanation
 	if explanation == "" {
 		explanation = override.Reason
 	}
-	feedbackText := ai.BuildFeedbackText(
+	feedbackText := ai.BuildFeedbackTextWithRecs(
 		evaluation.Domain,
 		secondLevel,
-		trademarkScore,
-		viceScore,
-		override.OverrideRecommendation,
+		override.OverrideTrademarkRecommendation,
+		override.OverrideViceRecommendation,
 		explanation,
 	)
 
@@ -158,14 +179,14 @@ func (s *Server) generateFeedbackEmbedding(override *store.EvaluationOverride, e
 
 	// Store the embedding
 	feedbackEmb := &store.FeedbackEmbedding{
-		OverrideID:              override.ID,
-		DomainNormalized:        evaluation.DomainNormalized,
-		SecondLevelLabel:        secondLevel,
-		EmbeddingText:           feedbackText,
-		CorrectedRecommendation: override.OverrideRecommendation,
-		CorrectedExplanation:    explanation,
-		CorrectedTrademarkScore: override.OverrideTrademarkScore,
-		CorrectedViceScore:      override.OverrideViceScore,
+		OverrideID:                       override.ID,
+		DomainNormalized:                 evaluation.DomainNormalized,
+		SecondLevelLabel:                 secondLevel,
+		EmbeddingText:                    feedbackText,
+		CorrectedTrademarkRecommendation: override.OverrideTrademarkRecommendation,
+		CorrectedViceRecommendation:      override.OverrideViceRecommendation,
+		CorrectedRecommendation:          override.OverrideRecommendation,
+		CorrectedExplanation:             explanation,
 	}
 	feedbackEmb.SetEmbedding(embedding)
 
