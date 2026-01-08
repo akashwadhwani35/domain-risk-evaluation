@@ -298,7 +298,10 @@ func (d *Database) ListEvaluations(opts EvaluationQuery) ([]Evaluation, int64, e
 		base = base.Where("LOWER(domain) LIKE ?", like)
 	}
 	if rec := strings.TrimSpace(opts.Recommendation); rec != "" {
-		base = base.Where("overall_recommendation = ?", strings.ToUpper(rec))
+		recUpper := strings.ToUpper(rec)
+		// Filter where EITHER trademark OR vice matches the recommendation
+		// This ensures the EvaluationsQueue shows all items needing review
+		base = base.Where("trademark_recommendation = ? OR vice_recommendation = ?", recUpper, recUpper)
 	}
 
 	if err := base.Count(&total).Error; err != nil {

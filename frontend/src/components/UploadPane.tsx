@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import clsx from 'clsx';
+import { HelpTip } from './Tooltip';
 import type { UploadResponse } from '../types';
 
 interface UploadPaneProps {
@@ -78,7 +79,10 @@ export default function UploadPane({ onProcess, onEvaluate, busy }: UploadPanePr
 
       <div className="mt-4 space-y-3">
         <label className="flex flex-col gap-1.5 text-[var(--text)]">
-          <span className="text-sm font-medium text-[var(--muted)]">Domains CSV</span>
+          <span className="text-sm font-medium text-[var(--muted)] flex items-center gap-1">
+            Domains CSV
+            <HelpTip content="CSV file with domain names to evaluate. Must have a 'domain' column." position="right" />
+          </span>
           <input
             type="file"
             accept=".csv"
@@ -90,7 +94,10 @@ export default function UploadPane({ onProcess, onEvaluate, busy }: UploadPanePr
 
         <div className="grid grid-cols-2 gap-3">
           <label className="flex flex-col gap-1.5 text-[var(--text)]">
-            <span className="text-sm font-medium text-[var(--muted)]">Batch Name</span>
+            <span className="text-sm font-medium text-[var(--muted)] flex items-center gap-1">
+              Batch Name
+              <HelpTip content="A name to identify this upload batch" position="right" />
+            </span>
             <input
               type="text"
               value={batchName}
@@ -100,7 +107,10 @@ export default function UploadPane({ onProcess, onEvaluate, busy }: UploadPanePr
             />
           </label>
           <label className="flex flex-col gap-1.5 text-[var(--text)]">
-            <span className="text-sm font-medium text-[var(--muted)]">Owner</span>
+            <span className="text-sm font-medium text-[var(--muted)] flex items-center gap-1">
+              Owner
+              <HelpTip content="Person or team responsible for this batch" position="right" />
+            </span>
             <input
               type="text"
               value={ownerName}

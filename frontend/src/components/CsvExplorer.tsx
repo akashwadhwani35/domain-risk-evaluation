@@ -34,7 +34,7 @@ export default function CsvExplorer({ open, batches, selectedId, onSelect, onClo
         {items.length === 0 ? (
           <p className="text-sm text-[var(--muted)]">No CSV batches yet. Upload a CSV to get started.</p>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-3 max-h-[60vh] overflow-y-auto">
             {items.map((batch) => {
               const isSelected = batch.id === selectedId;
               const remaining = Math.max(batch.unique_domains - batch.processed_domains, 0);
@@ -50,7 +50,7 @@ export default function CsvExplorer({ open, batches, selectedId, onSelect, onClo
                     'w-full rounded-2xl border px-5 py-4 text-left transition-all',
                     isSelected
                       ? 'border-[var(--text)] bg-[var(--surface-2)] shadow-[0_10px_25px_rgba(10,10,10,0.08)]'
-                      : 'border-[var(--line)] bg-white hover:-translate-y-0.5 hover:shadow-[0_10px_25px_rgba(10,10,10,0.08)]'
+                      : 'border-[var(--line)] bg-[var(--surface)] hover:-translate-y-0.5 hover:shadow-[0_10px_25px_rgba(10,10,10,0.08)]'
                   )}
                 >
                   <div className="flex flex-wrap items-center justify-between gap-4">

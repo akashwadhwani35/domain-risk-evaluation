@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import clsx from 'clsx';
 import dayjs from 'dayjs';
 import ScoreBadge from './ScoreBadge';
+import Tooltip, { HelpTip } from './Tooltip';
 import type { EvaluationDTO } from '../types';
 
 interface ResultsTableProps {
@@ -100,7 +101,7 @@ export default function ResultsTable({
   }, [filters.q, filters.tld, filters.recommendation, filters.sort]);
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / pageSize)), [total, pageSize]);
-  const hasActiveFilters = tld !== '' || recommendation !== undefined;
+  const hasActiveFilters = search !== '' || tld !== '' || recommendation !== undefined;
 
   return (
     <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)] overflow-hidden">
@@ -192,6 +193,7 @@ export default function ResultsTable({
               <button
                 type="button"
                 onClick={() => {
+                  setSearch('');
                   setTld('');
                   setRecommendation(undefined);
                 }}
@@ -211,8 +213,18 @@ export default function ResultsTable({
             <tr>
               <th className="w-10 px-4 py-3"></th>
               <th className="px-4 py-3 font-medium">Domain</th>
-              <th className="px-4 py-3 font-medium w-36">Trademark</th>
-              <th className="px-4 py-3 font-medium w-36">Vice</th>
+              <th className="px-4 py-3 font-medium w-36">
+                <span className="flex items-center gap-1">
+                  Trademark
+                  <HelpTip content="AI assessment of trademark infringement risk" position="bottom" />
+                </span>
+              </th>
+              <th className="px-4 py-3 font-medium w-36">
+                <span className="flex items-center gap-1">
+                  Vice
+                  <HelpTip content="AI assessment of adult, gambling, drugs, or illegal content" position="bottom" />
+                </span>
+              </th>
               <th className="px-4 py-3 font-medium text-right w-32">Date</th>
             </tr>
           </thead>
@@ -389,28 +401,32 @@ export default function ResultsTable({
 function ExportButtons({ onExport, disabled }: { onExport: (format: 'csv' | 'json') => Promise<void>; disabled: boolean }) {
   return (
     <div className="flex items-center gap-2">
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => onExport('csv')}
-        className={clsx(
-          'rounded-lg border border-[var(--line)] px-3 py-2 text-sm font-medium text-[var(--text)]',
-          disabled ? 'cursor-not-allowed opacity-40' : 'hover:bg-[var(--surface-2)]'
-        )}
-      >
-        CSV
-      </button>
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => onExport('json')}
-        className={clsx(
-          'rounded-lg border border-[var(--line)] px-3 py-2 text-sm font-medium text-[var(--text)]',
-          disabled ? 'cursor-not-allowed opacity-40' : 'hover:bg-[var(--surface-2)]'
-        )}
-      >
-        JSON
-      </button>
+      <Tooltip content="Download results as CSV spreadsheet" position="bottom">
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => onExport('csv')}
+          className={clsx(
+            'rounded-lg border border-[var(--line)] px-3 py-2 text-sm font-medium text-[var(--text)]',
+            disabled ? 'cursor-not-allowed opacity-40' : 'hover:bg-[var(--surface-2)]'
+          )}
+        >
+          CSV
+        </button>
+      </Tooltip>
+      <Tooltip content="Download results as JSON data" position="bottom">
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => onExport('json')}
+          className={clsx(
+            'rounded-lg border border-[var(--line)] px-3 py-2 text-sm font-medium text-[var(--text)]',
+            disabled ? 'cursor-not-allowed opacity-40' : 'hover:bg-[var(--surface-2)]'
+          )}
+        >
+          JSON
+        </button>
+      </Tooltip>
     </div>
   );
 }

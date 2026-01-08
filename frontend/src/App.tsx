@@ -8,6 +8,7 @@ import Dashboard from './components/Dashboard';
 import OverrideModal from './components/OverrideModal';
 import AILearningDashboard from './components/AILearningDashboard';
 import EvaluationsQueue from './components/EvaluationsQueue';
+import Tooltip from './components/Tooltip';
 import {
   buildWebSocketURL,
   cancelEvaluation,
@@ -93,6 +94,24 @@ const normalizeRecommendation = (rec: string): string => {
       return 'POTENTIAL_RISK';
     default:
       return 'POTENTIAL_RISK';
+  }
+};
+
+// Helper to format recommendation for display
+const formatRecommendation = (rec: string): string => {
+  switch (rec?.toUpperCase()) {
+    case 'YES_RISK':
+    case 'BLOCK':
+      return 'Yes';
+    case 'NO_RISK':
+    case 'ALLOW':
+      return 'No';
+    case 'POTENTIAL_RISK':
+    case 'REVIEW':
+    case 'ALLOW_WITH_CAUTION':
+      return 'Maybe';
+    default:
+      return rec || '—';
   }
 };
 
@@ -450,6 +469,7 @@ export default function App() {
         link.click();
         link.remove();
         URL.revokeObjectURL(url);
+        setEvaluationMessage(`Exported ${format.toUpperCase()} successfully.`);
       } catch (err) {
         console.error('Failed to export results', err);
         setEvaluationMessage('Export failed.');
@@ -778,54 +798,62 @@ export default function App() {
             <div className="flex flex-wrap items-center gap-3">
               {/* View Toggle */}
               <div className="flex items-center rounded-lg border border-[var(--line)] p-1 bg-[var(--surface)]">
-                <button
-                  type="button"
-                  onClick={() => setViewMode('dashboard')}
-                  className={clsx(
-                    'rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                    viewMode === 'dashboard'
-                      ? 'bg-[var(--text)] text-white'
-                      : 'text-[var(--muted)] hover:text-[var(--text)]'
-                  )}
-                >
-                  Dashboard
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setViewMode('evaluations')}
-                  className={clsx(
-                    'rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                    viewMode === 'evaluations'
-                      ? 'bg-[var(--text)] text-white'
-                      : 'text-[var(--muted)] hover:text-[var(--text)]'
-                  )}
-                >
-                  Evaluations
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setViewMode('results')}
-                  className={clsx(
-                    'rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                    viewMode === 'results'
-                      ? 'bg-[var(--text)] text-white'
-                      : 'text-[var(--muted)] hover:text-[var(--text)]'
-                  )}
-                >
-                  Results
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setViewMode('ai_learning')}
-                  className={clsx(
-                    'rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                    viewMode === 'ai_learning'
-                      ? 'bg-[var(--text)] text-white'
-                      : 'text-[var(--muted)] hover:text-[var(--text)]'
-                  )}
-                >
-                  AI Learning
-                </button>
+                <Tooltip content="Overview stats and charts for all evaluations" position="bottom">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('dashboard')}
+                    className={clsx(
+                      'rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                      viewMode === 'dashboard'
+                        ? 'bg-[var(--text)] text-white'
+                        : 'text-[var(--muted)] hover:text-[var(--text)]'
+                    )}
+                  >
+                    Dashboard
+                  </button>
+                </Tooltip>
+                <Tooltip content="Review 'Maybe' domains and make Yes/No decisions" position="bottom">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('evaluations')}
+                    className={clsx(
+                      'rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                      viewMode === 'evaluations'
+                        ? 'bg-[var(--text)] text-white'
+                        : 'text-[var(--muted)] hover:text-[var(--text)]'
+                    )}
+                  >
+                    Evaluations
+                  </button>
+                </Tooltip>
+                <Tooltip content="Browse all results, filter, search, and export CSV/JSON" position="bottom">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('results')}
+                    className={clsx(
+                      'rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                      viewMode === 'results'
+                        ? 'bg-[var(--text)] text-white'
+                        : 'text-[var(--muted)] hover:text-[var(--text)]'
+                    )}
+                  >
+                    Results
+                  </button>
+                </Tooltip>
+                <Tooltip content="See how AI learns from your corrections" position="bottom">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('ai_learning')}
+                    className={clsx(
+                      'rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                      viewMode === 'ai_learning'
+                        ? 'bg-[var(--text)] text-white'
+                        : 'text-[var(--muted)] hover:text-[var(--text)]'
+                    )}
+                  >
+                    AI Learning
+                  </button>
+                </Tooltip>
               </div>
 
               <button
@@ -1054,10 +1082,10 @@ export default function App() {
                               <span className="font-medium text-[var(--text)] break-all">{item.domain}</span>
                               <div className="flex gap-1">
                                 <span className="rounded-md border border-[var(--line)] px-2 py-1 text-xs text-[var(--muted)]">
-                                  TM: {item.trademark_recommendation}
+                                  TM: {formatRecommendation(item.trademark_recommendation)}
                                 </span>
                                 <span className="rounded-md border border-[var(--line)] px-2 py-1 text-xs text-[var(--muted)]">
-                                  Vice: {item.vice_recommendation}
+                                  Vice: {formatRecommendation(item.vice_recommendation)}
                                 </span>
                               </div>
                             </div>

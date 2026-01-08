@@ -4,7 +4,7 @@ import {
   PieChart,
   Pie,
   Cell,
-  Tooltip,
+  Tooltip as RechartsTooltip,
   ResponsiveContainer,
   LineChart,
   Line,
@@ -14,6 +14,7 @@ import {
 import { fetchStats, resetDatabase } from '../lib/api';
 import type { StatsResponse, BatchDTO, BatchSummary } from '../types';
 import ScoreBadge from './ScoreBadge';
+import { HelpTip } from './Tooltip';
 
 interface DashboardProps {
   selectedBatch: BatchDTO | null;
@@ -47,9 +48,10 @@ interface StatCardProps {
   label: string;
   value: string | number;
   accent?: string;
+  tooltip?: string;
 }
 
-function StatCard({ label, value, accent }: StatCardProps) {
+function StatCard({ label, value, accent, tooltip }: StatCardProps) {
   return (
     <div
       className={clsx(
@@ -57,8 +59,9 @@ function StatCard({ label, value, accent }: StatCardProps) {
         accent ?? 'bg-[var(--surface)]'
       )}
     >
-      <span className="text-sm font-medium text-[var(--muted)]">
+      <span className="text-sm font-medium text-[var(--muted)] flex items-center gap-1">
         {label}
+        {tooltip && <HelpTip content={tooltip} position="right" />}
       </span>
       <span className="text-2xl font-bold text-[var(--text)]">
         {typeof value === 'number' ? formatNumber(value) : value}
@@ -109,7 +112,7 @@ function RiskDistributionChart({ data }: RiskDistributionChartProps) {
               <Cell key={`cell-${index}`} fill={entry.color} />
             ))}
           </Pie>
-          <Tooltip
+          <RechartsTooltip
             formatter={(value: number) => [formatNumber(value), 'Count']}
             contentStyle={{
               backgroundColor: 'var(--surface)',
@@ -275,7 +278,7 @@ function ActivitySparkline({ data }: ActivitySparklineProps) {
           tickLine={false}
           tickFormatter={formatNumber}
         />
-        <Tooltip
+        <RechartsTooltip
           contentStyle={{
             backgroundColor: 'var(--surface)',
             border: '1px solid var(--line)',
@@ -426,17 +429,27 @@ export default function Dashboard({ selectedBatch, onSelectBatch, onSwitchToResu
 
       {/* Stat Cards Row */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Total Evaluated" value={stats.total_evaluations} />
-        <StatCard label="Total Batches" value={stats.total_batches} />
+        <StatCard
+          label="Total Evaluated"
+          value={stats.total_evaluations}
+          tooltip="Total number of domains that have been analyzed by the AI"
+        />
+        <StatCard
+          label="Total Batches"
+          value={stats.total_batches}
+          tooltip="Number of CSV files uploaded for processing"
+        />
         <StatCard
           label="Trademark Risks"
           value={totalTrademarkRisks}
           accent="bg-red-50"
+          tooltip="Domains flagged as potential trademark infringements (Yes Risk + Maybe)"
         />
         <StatCard
           label="Vice Risks"
           value={totalViceRisks}
           accent="bg-amber-50"
+          tooltip="Domains flagged for adult, gambling, drugs, or illegal content (Yes Risk + Maybe)"
         />
       </div>
 

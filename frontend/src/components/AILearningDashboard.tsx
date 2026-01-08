@@ -195,6 +195,12 @@ export default function AILearningDashboard({ batchId }: AILearningDashboardProp
                   <span className="text-[var(--muted)]">→</span>
                   <RecommendationBadge recommendation={override.override_trademark_recommendation} size="sm" />
                 </div>
+                <div className="mt-1 flex items-center gap-2 text-sm">
+                  <span className="text-xs text-[var(--muted)]">Vice:</span>
+                  <RecommendationBadge recommendation={override.original_vice_recommendation} size="sm" />
+                  <span className="text-[var(--muted)]">→</span>
+                  <RecommendationBadge recommendation={override.override_vice_recommendation} size="sm" />
+                </div>
               </div>
             ))}
           </div>
