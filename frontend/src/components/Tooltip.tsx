@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState } from 'react';
 import clsx from 'clsx';
 
 interface TooltipProps {
@@ -9,7 +9,6 @@ interface TooltipProps {
 
 export default function Tooltip({ content, children, position = 'top' }: TooltipProps) {
   const [show, setShow] = useState(false);
-  const tooltipRef = useRef<HTMLDivElement>(null);
 
   const positionClasses = {
     top: 'bottom-full left-1/2 -translate-x-1/2 mb-2',
@@ -34,10 +33,9 @@ export default function Tooltip({ content, children, position = 'top' }: Tooltip
       {children}
       {show && (
         <div
-          ref={tooltipRef}
           className={clsx(
             'absolute z-50 px-3 py-2 text-xs text-white bg-gray-900 rounded-lg shadow-lg',
-            'whitespace-normal max-w-xs',
+            'w-48 text-center', // Fixed width for uniform appearance
             'animate-in fade-in duration-150',
             positionClasses[position]
           )}
