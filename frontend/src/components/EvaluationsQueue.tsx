@@ -161,12 +161,13 @@ export default function EvaluationsQueue({ batchId, onOverrideCreated }: Evaluat
       </div>
 
       {/* Filter Tabs */}
-      <div className="flex gap-1 p-1 rounded-lg bg-[var(--surface-2)] w-fit">
-        {[
-          { value: 'all', label: 'All' },
-          { value: 'tm', label: 'Trademark' },
-          { value: 'vice', label: 'Vice' }
-        ].map((tab) => (
+      <div className="flex items-center gap-2">
+        <div className="flex gap-1 p-1 rounded-lg bg-[var(--surface-2)]">
+          {[
+            { value: 'all', label: 'All' },
+            { value: 'tm', label: 'Trademark' },
+            { value: 'vice', label: 'Vice' }
+          ].map((tab) => (
           <button
             key={tab.value}
             type="button"
@@ -181,6 +182,11 @@ export default function EvaluationsQueue({ batchId, onOverrideCreated }: Evaluat
             {tab.label}
           </button>
         ))}
+        </div>
+        <HelpTip
+          content="Counts may overlap: a domain can need review for both Trademark AND Vice. The 'All' count shows unique domains, while TM + Vice may sum to more."
+          position="right"
+        />
       </div>
 
       {/* Empty state */}
