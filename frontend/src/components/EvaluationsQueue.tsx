@@ -13,6 +13,19 @@ const PAGE_SIZE = 50;
 
 type FilterType = 'all' | 'tm' | 'vice';
 
+function normalizeRec(rec: string): string {
+  switch (rec?.toUpperCase()) {
+    case 'YES_RISK':
+    case 'BLOCK':
+      return 'YES_RISK';
+    case 'NO_RISK':
+    case 'ALLOW':
+      return 'NO_RISK';
+    default:
+      return 'POTENTIAL_RISK';
+  }
+}
+
 export default function EvaluationsQueue({ batchId, onOverrideCreated }: EvaluationsQueueProps) {
   const [evaluations, setEvaluations] = useState<EvaluationDTO[]>([]);
   const [total, setTotal] = useState(0);
@@ -51,31 +64,51 @@ export default function EvaluationsQueue({ batchId, onOverrideCreated }: Evaluat
     setPage(0);
   }, [filter]);
 
-  const handleQuickFlip = async (evaluation: EvaluationDTO, decision: 'YES_RISK' | 'NO_RISK') => {
+  const handleOverride = async (
+    evaluation: EvaluationDTO,
+    category: 'tm' | 'vice',
+    decision: 'YES_RISK' | 'NO_RISK'
+  ) => {
     setProcessingId(evaluation.id);
 
-    const reason = decision === 'YES_RISK'
-      ? 'Confirmed as risk'
-      : 'Confirmed as safe';
+    const currentTm = normalizeRec(evaluation.trademark_recommendation);
+    const currentVice = normalizeRec(evaluation.vice_recommendation);
+
+    const newTm = category === 'tm' ? decision : currentTm;
+    const newVice = category === 'vice' ? decision : currentVice;
 
     const request: OverrideRequest = {
       overridden_by: 'Quick Review',
-      reason,
-      override_trademark_recommendation: decision,
-      override_vice_recommendation: decision
+      reason: `${category === 'tm' ? 'Trademark' : 'Vice'}: ${decision === 'YES_RISK' ? 'Confirmed risk' : 'Confirmed safe'}`,
+      override_trademark_recommendation: newTm,
+      override_vice_recommendation: newVice
     };
 
     try {
       await createOverride(evaluation.id, request);
-      // Remove from list after successful override
-      const newList = evaluations.filter(e => e.id !== evaluation.id);
-      const newTotal = Math.max(0, total - 1);
-      setEvaluations(newList);
-      setTotal(newTotal);
 
-      // If current page is now empty and we're not on first page, go back
-      if (newList.length === 0 && page > 0) {
-        setPage(page - 1);
+      // Check if this item should be removed from the list
+      const stillNeedsReview =
+        (filter === 'all' && (newTm === 'POTENTIAL_RISK' || newVice === 'POTENTIAL_RISK')) ||
+        (filter === 'tm' && newTm === 'POTENTIAL_RISK') ||
+        (filter === 'vice' && newVice === 'POTENTIAL_RISK');
+
+      if (!stillNeedsReview) {
+        const newList = evaluations.filter(e => e.id !== evaluation.id);
+        const newTotal = Math.max(0, total - 1);
+        setEvaluations(newList);
+        setTotal(newTotal);
+
+        if (newList.length === 0 && page > 0) {
+          setPage(page - 1);
+        }
+      } else {
+        // Update in place
+        setEvaluations(prev => prev.map(e =>
+          e.id === evaluation.id
+            ? { ...e, trademark_recommendation: newTm, vice_recommendation: newVice }
+            : e
+        ));
       }
       onOverrideCreated?.();
     } catch (err) {
@@ -168,55 +201,93 @@ export default function EvaluationsQueue({ batchId, onOverrideCreated }: Evaluat
         <div className="space-y-3">
           {evaluations.map((evaluation) => {
             const isProcessing = processingId === evaluation.id;
+            const tmNeedsReview = normalizeRec(evaluation.trademark_recommendation) === 'POTENTIAL_RISK';
+            const viceNeedsReview = normalizeRec(evaluation.vice_recommendation) === 'POTENTIAL_RISK';
+
             return (
               <div
                 key={evaluation.id}
                 className={clsx(
                   'rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5 transition-opacity',
-                  isProcessing && 'opacity-50'
+                  isProcessing && 'opacity-50 pointer-events-none'
                 )}
               >
-                <div className="flex items-start justify-between gap-4">
-                  {/* Domain info */}
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-[var(--text)] text-lg">{evaluation.domain}</h3>
-                    <p className="mt-2 text-sm text-[var(--muted)] leading-relaxed">
-                      {evaluation.explanation || 'No explanation available'}
+                {/* Domain info */}
+                <div className="mb-4">
+                  <h3 className="font-semibold text-[var(--text)] text-lg">{evaluation.domain}</h3>
+                  <p className="mt-1 text-sm text-[var(--muted)] leading-relaxed line-clamp-2">
+                    {evaluation.explanation || 'No explanation available'}
+                  </p>
+                  {evaluation.matched_trademark && (
+                    <p className="mt-1 text-xs text-[var(--muted)]">
+                      Matched: <span className="text-[var(--text)]">{evaluation.matched_trademark}</span>
                     </p>
-                    {evaluation.matched_trademark && (
-                      <p className="mt-2 text-xs text-[var(--muted)]">
-                        Matched: <span className="text-[var(--text)]">{evaluation.matched_trademark}</span>
-                      </p>
-                    )}
-                  </div>
+                  )}
+                </div>
 
-                  {/* Quick flip buttons */}
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => handleQuickFlip(evaluation, 'YES_RISK')}
-                      disabled={isProcessing}
-                      className={clsx(
-                        'rounded-lg px-4 py-2.5 text-sm font-medium transition-all',
-                        'bg-red-100 text-red-700 hover:bg-red-200 active:bg-red-300',
-                        'disabled:opacity-50 disabled:cursor-not-allowed'
-                      )}
-                    >
-                      Yes Risk
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleQuickFlip(evaluation, 'NO_RISK')}
-                      disabled={isProcessing}
-                      className={clsx(
-                        'rounded-lg px-4 py-2.5 text-sm font-medium transition-all',
-                        'bg-green-100 text-green-700 hover:bg-green-200 active:bg-green-300',
-                        'disabled:opacity-50 disabled:cursor-not-allowed'
-                      )}
-                    >
-                      No Risk
-                    </button>
-                  </div>
+                {/* Category buttons with labels */}
+                <div className="flex flex-wrap items-center gap-4">
+                  {/* Trademark row - only show if TM needs review */}
+                  {tmNeedsReview && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-[var(--text)] w-20">Trademark:</span>
+                      <button
+                        type="button"
+                        onClick={() => handleOverride(evaluation, 'tm', 'YES_RISK')}
+                        disabled={isProcessing}
+                        className={clsx(
+                          'rounded-lg px-3 py-1.5 text-sm font-medium transition-all',
+                          'bg-red-100 text-red-700 hover:bg-red-200',
+                          'disabled:opacity-50 disabled:cursor-not-allowed'
+                        )}
+                      >
+                        Yes
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleOverride(evaluation, 'tm', 'NO_RISK')}
+                        disabled={isProcessing}
+                        className={clsx(
+                          'rounded-lg px-3 py-1.5 text-sm font-medium transition-all',
+                          'bg-green-100 text-green-700 hover:bg-green-200',
+                          'disabled:opacity-50 disabled:cursor-not-allowed'
+                        )}
+                      >
+                        No
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Vice row - only show if Vice needs review */}
+                  {viceNeedsReview && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-[var(--text)] w-20">Vice:</span>
+                      <button
+                        type="button"
+                        onClick={() => handleOverride(evaluation, 'vice', 'YES_RISK')}
+                        disabled={isProcessing}
+                        className={clsx(
+                          'rounded-lg px-3 py-1.5 text-sm font-medium transition-all',
+                          'bg-red-100 text-red-700 hover:bg-red-200',
+                          'disabled:opacity-50 disabled:cursor-not-allowed'
+                        )}
+                      >
+                        Yes
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleOverride(evaluation, 'vice', 'NO_RISK')}
+                        disabled={isProcessing}
+                        className={clsx(
+                          'rounded-lg px-3 py-1.5 text-sm font-medium transition-all',
+                          'bg-green-100 text-green-700 hover:bg-green-200',
+                          'disabled:opacity-50 disabled:cursor-not-allowed'
+                        )}
+                      >
+                        No
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             );
