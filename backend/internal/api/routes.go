@@ -944,18 +944,20 @@ func (s *Server) renderResults(c *gin.Context, batchID uint) {
 	minViceScore, _ := strconv.Atoi(c.Query("minViceScore"))
 	tld := strings.TrimSpace(c.Query("tld"))
 	recommendation := strings.TrimSpace(c.Query("recommendation"))
+	recommendationType := strings.TrimSpace(c.Query("rec_type")) // "tm", "vice", or empty for either
 	sort := strings.TrimSpace(c.Query("sort"))
 
 	rows, total, err := s.db.ListEvaluations(store.EvaluationQuery{
-		Query:          query,
-		MinTrademark:   minScore,
-		MinVice:        minViceScore,
-		TLD:            tld,
-		Recommendation: recommendation,
-		Sort:           sort,
-		Offset:         offset,
-		Limit:          pageSize,
-		BatchID:        batchID,
+		Query:              query,
+		MinTrademark:       minScore,
+		MinVice:            minViceScore,
+		TLD:                tld,
+		Recommendation:     recommendation,
+		RecommendationType: recommendationType,
+		Sort:               sort,
+		Offset:             offset,
+		Limit:              pageSize,
+		BatchID:            batchID,
 	})
 	if err != nil {
 		s.renderError(c, http.StatusInternalServerError, err)

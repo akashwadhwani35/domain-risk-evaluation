@@ -58,6 +58,7 @@ export async function fetchResults(query: ResultsQuery): Promise<EvaluateRespons
       minViceScore: query.minViceScore,
       tld: query.tld,
       recommendation: query.recommendation,
+      rec_type: query.recType,
       sort: query.sort,
       page: query.page,
       pageSize: query.pageSize,

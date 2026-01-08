@@ -262,15 +262,16 @@ func (d *Database) ListDomains(offset, limit int) ([]Domain, int64, error) {
 
 // EvaluationQuery encapsulates filters and pagination for listing evaluation rows.
 type EvaluationQuery struct {
-	Query          string
-	MinTrademark   int
-	MinVice        int
-	TLD            string
-	Recommendation string
-	Sort           string
-	Offset         int
-	Limit          int
-	BatchID        uint
+	Query              string
+	MinTrademark       int
+	MinVice            int
+	TLD                string
+	Recommendation     string
+	RecommendationType string // "tm", "vice", or empty for either (OR)
+	Sort               string
+	Offset             int
+	Limit              int
+	BatchID            uint
 }
 
 // ListEvaluations returns paginated evaluation records applying optional filters.
@@ -299,9 +300,16 @@ func (d *Database) ListEvaluations(opts EvaluationQuery) ([]Evaluation, int64, e
 	}
 	if rec := strings.TrimSpace(opts.Recommendation); rec != "" {
 		recUpper := strings.ToUpper(rec)
-		// Filter where EITHER trademark OR vice matches the recommendation
-		// This ensures the EvaluationsQueue shows all items needing review
-		base = base.Where("trademark_recommendation = ? OR vice_recommendation = ?", recUpper, recUpper)
+		recType := strings.ToLower(strings.TrimSpace(opts.RecommendationType))
+		switch recType {
+		case "tm", "trademark":
+			base = base.Where("trademark_recommendation = ?", recUpper)
+		case "vice":
+			base = base.Where("vice_recommendation = ?", recUpper)
+		default:
+			// Filter where EITHER trademark OR vice matches the recommendation
+			base = base.Where("trademark_recommendation = ? OR vice_recommendation = ?", recUpper, recUpper)
+		}
 	}
 
 	if err := base.Count(&total).Error; err != nil {

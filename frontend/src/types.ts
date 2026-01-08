@@ -73,6 +73,7 @@ export interface ResultsQuery {
   minViceScore?: number;
   tld?: string;
   recommendation?: string;
+  recType?: 'tm' | 'vice'; // Filter by trademark only, vice only, or both (undefined)
   sort?: string;
   page?: number;
   pageSize?: number;
