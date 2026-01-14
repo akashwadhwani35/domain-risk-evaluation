@@ -262,6 +262,8 @@ POTENTIAL_RISK - ONLY use when it's genuinely a famous brand AND a common word:
 - Apple (company + fruit), Amazon (company + river), Shell (company + seashell)
 - This should be RARE - less than 5% of domains
 
+ALSO FLAG AS YES_RISK: Domains with obvious vulgar/sexual/offensive terms (porn, xxx, cock, pussy, fuck, cum, jizz, ass, dick, anal, nazi, rape, etc.) regardless of trademark status.
+
 CRITICAL: Your decision MUST match your explanation. If you say "no trademark risk" or "unlikely to cause legal trouble" → decision MUST be NO_RISK.
 
 OUTPUT JSON:
