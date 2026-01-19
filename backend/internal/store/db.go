@@ -1535,10 +1535,29 @@ func (d *Database) CreateTrainingTerm(term *AITrainingTerm) error {
 	return d.gorm.Create(term).Error
 }
 
-// GetTrainingTerms returns all training terms grouped by classification.
+// CreateTrainingTermsBulk creates multiple training terms at once, skipping duplicates.
+func (d *Database) CreateTrainingTermsBulk(terms []AITrainingTerm) (int, error) {
+	if len(terms) == 0 {
+		return 0, nil
+	}
+	created := 0
+	for _, term := range terms {
+		if err := d.gorm.Create(&term).Error; err != nil {
+			// Skip duplicates (unique constraint violation)
+			if strings.Contains(err.Error(), "UNIQUE constraint") {
+				continue
+			}
+			return created, err
+		}
+		created++
+	}
+	return created, nil
+}
+
+// GetTrainingTerms returns all training terms grouped by category and classification.
 func (d *Database) GetTrainingTerms() ([]AITrainingTerm, error) {
 	var terms []AITrainingTerm
-	if err := d.gorm.Order("classification ASC, term ASC").Find(&terms).Error; err != nil {
+	if err := d.gorm.Order("category ASC, classification ASC, term ASC").Find(&terms).Error; err != nil {
 		return nil, err
 	}
 	return terms, nil

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
-import type { FeedbackStatsResponse, OverrideDTO, TrainingTermDTO } from '../types';
-import { fetchFeedbackStats, fetchOverrides, fetchTrainingTerms, createTrainingTerm, deleteTrainingTerm } from '../lib/api';
+import type { FeedbackStatsResponse, OverrideDTO, TrainingTermDTO, TrainingTermCategory } from '../types';
+import { fetchFeedbackStats, fetchOverrides, fetchTrainingTerms, createTrainingTermsBulk, deleteTrainingTerm } from '../lib/api';
 
 dayjs.extend(relativeTime);
 
@@ -14,9 +14,10 @@ export default function AILearningDashboard({ batchId }: AILearningDashboardProp
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<FeedbackStatsResponse | null>(null);
   const [recentOverrides, setRecentOverrides] = useState<OverrideDTO[]>([]);
-  const [yesRiskTerms, setYesRiskTerms] = useState<TrainingTermDTO[]>([]);
-  const [noRiskTerms, setNoRiskTerms] = useState<TrainingTermDTO[]>([]);
+  const [trademarkTerms, setTrademarkTerms] = useState<TrainingTermCategory>({ yes_risk: [], no_risk: [] });
+  const [viceTerms, setViceTerms] = useState<TrainingTermCategory>({ yes_risk: [], no_risk: [] });
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'trademark' | 'vice'>('trademark');
 
   useEffect(() => {
     async function loadData() {
@@ -30,8 +31,8 @@ export default function AILearningDashboard({ batchId }: AILearningDashboardProp
         ]);
         setStats(statsData);
         setRecentOverrides(overridesData.items);
-        setYesRiskTerms(termsData.yes_risk);
-        setNoRiskTerms(termsData.no_risk);
+        setTrademarkTerms(termsData.trademark || { yes_risk: [], no_risk: [] });
+        setViceTerms(termsData.vice || { yes_risk: [], no_risk: [] });
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load AI learning data');
       } finally {
@@ -41,26 +42,36 @@ export default function AILearningDashboard({ batchId }: AILearningDashboardProp
     loadData();
   }, [batchId]);
 
-  const handleAddTerm = async (term: string, classification: 'YES_RISK' | 'NO_RISK') => {
+  const handleAddTermsBulk = async (
+    terms: string[],
+    classification: 'YES_RISK' | 'NO_RISK',
+    category: 'trademark' | 'vice'
+  ) => {
     try {
-      const newTerm = await createTrainingTerm(term, classification);
-      if (classification === 'YES_RISK') {
-        setYesRiskTerms(prev => [...prev, newTerm]);
-      } else {
-        setNoRiskTerms(prev => [...prev, newTerm]);
-      }
+      const result = await createTrainingTermsBulk(terms, classification, category);
+      // Refresh terms after bulk add
+      const termsData = await fetchTrainingTerms();
+      setTrademarkTerms(termsData.trademark || { yes_risk: [], no_risk: [] });
+      setViceTerms(termsData.vice || { yes_risk: [], no_risk: [] });
+      return result;
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to add term');
+      throw err;
     }
   };
 
-  const handleDeleteTerm = async (id: number, classification: 'YES_RISK' | 'NO_RISK') => {
+  const handleDeleteTerm = async (id: number, classification: 'YES_RISK' | 'NO_RISK', category: 'trademark' | 'vice') => {
     try {
       await deleteTrainingTerm(id);
-      if (classification === 'YES_RISK') {
-        setYesRiskTerms(prev => prev.filter(t => t.id !== id));
+      if (category === 'trademark') {
+        setTrademarkTerms(prev => ({
+          yes_risk: classification === 'YES_RISK' ? prev.yes_risk.filter(t => t.id !== id) : prev.yes_risk,
+          no_risk: classification === 'NO_RISK' ? prev.no_risk.filter(t => t.id !== id) : prev.no_risk
+        }));
       } else {
-        setNoRiskTerms(prev => prev.filter(t => t.id !== id));
+        setViceTerms(prev => ({
+          yes_risk: classification === 'YES_RISK' ? prev.yes_risk.filter(t => t.id !== id) : prev.yes_risk,
+          no_risk: classification === 'NO_RISK' ? prev.no_risk.filter(t => t.id !== id) : prev.no_risk
+        }));
       }
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to delete term');
@@ -86,6 +97,8 @@ export default function AILearningDashboard({ batchId }: AILearningDashboardProp
   if (!stats) {
     return null;
   }
+
+  const currentTerms = activeTab === 'trademark' ? trademarkTerms : viceTerms;
 
   return (
     <div className="space-y-6">
@@ -115,27 +128,57 @@ export default function AILearningDashboard({ batchId }: AILearningDashboardProp
         />
       </section>
 
-      {/* Training Terms - Two Columns */}
+      {/* Training Terms - Tabbed with Bulk Input */}
       <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-6">
         <h3 className="mb-2 text-lg font-semibold text-[var(--text)]">Teach AI</h3>
-        <p className="mb-4 text-sm text-[var(--muted)]">Add terms to guide AI in future evaluations</p>
+        <p className="mb-4 text-sm text-[var(--muted)]">Add terms to guide AI in future evaluations. Use comma or newline to add multiple terms at once.</p>
 
+        {/* Category Tabs */}
+        <div className="flex gap-2 mb-4">
+          <button
+            onClick={() => setActiveTab('trademark')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              activeTab === 'trademark'
+                ? 'bg-blue-500 text-white'
+                : 'bg-[var(--surface-2)] text-[var(--text)] hover:bg-[var(--surface-3)]'
+            }`}
+          >
+            Trademark Risk
+            <span className="ml-2 text-xs opacity-75">
+              ({trademarkTerms.yes_risk.length + trademarkTerms.no_risk.length})
+            </span>
+          </button>
+          <button
+            onClick={() => setActiveTab('vice')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              activeTab === 'vice'
+                ? 'bg-purple-500 text-white'
+                : 'bg-[var(--surface-2)] text-[var(--text)] hover:bg-[var(--surface-3)]'
+            }`}
+          >
+            Vice Risk
+            <span className="ml-2 text-xs opacity-75">
+              ({viceTerms.yes_risk.length + viceTerms.no_risk.length})
+            </span>
+          </button>
+        </div>
+
+        {/* Two Columns for YES_RISK and NO_RISK */}
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-          {/* YES_RISK Column */}
-          <TermColumn
+          <TermColumnBulk
             title="YES_RISK"
-            terms={yesRiskTerms}
-            onAdd={(term) => handleAddTerm(term, 'YES_RISK')}
-            onDelete={(id) => handleDeleteTerm(id, 'YES_RISK')}
+            subtitle={activeTab === 'trademark' ? 'Terms that indicate trademark infringement' : 'Terms that indicate vice/adult content'}
+            terms={currentTerms.yes_risk}
+            onAddBulk={(terms) => handleAddTermsBulk(terms, 'YES_RISK', activeTab)}
+            onDelete={(id) => handleDeleteTerm(id, 'YES_RISK', activeTab)}
             color="red"
           />
-
-          {/* NO_RISK Column */}
-          <TermColumn
+          <TermColumnBulk
             title="NO_RISK"
-            terms={noRiskTerms}
-            onAdd={(term) => handleAddTerm(term, 'NO_RISK')}
-            onDelete={(id) => handleDeleteTerm(id, 'NO_RISK')}
+            subtitle={activeTab === 'trademark' ? 'Terms that are safe/generic' : 'Terms that are not vice-related'}
+            terms={currentTerms.no_risk}
+            onAddBulk={(terms) => handleAddTermsBulk(terms, 'NO_RISK', activeTab)}
+            onDelete={(id) => handleDeleteTerm(id, 'NO_RISK', activeTab)}
             color="green"
           />
         </div>
@@ -210,26 +253,51 @@ export default function AILearningDashboard({ batchId }: AILearningDashboardProp
   );
 }
 
-function TermColumn({
+function TermColumnBulk({
   title,
+  subtitle,
   terms,
-  onAdd,
+  onAddBulk,
   onDelete,
   color
 }: {
   title: string;
+  subtitle: string;
   terms: TrainingTermDTO[];
-  onAdd: (term: string) => void;
+  onAddBulk: (terms: string[]) => Promise<{ created: number; skipped: number }>;
   onDelete: (id: number) => void;
   color: 'red' | 'green';
 }) {
-  const [newTerm, setNewTerm] = useState('');
+  const [inputValue, setInputValue] = useState('');
+  const [isAdding, setIsAdding] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (newTerm.trim()) {
-      onAdd(newTerm.trim());
-      setNewTerm('');
+    if (!inputValue.trim()) return;
+
+    // Parse input - split by comma, newline, or semicolon
+    const termsToAdd = inputValue
+      .split(/[,\n;]+/)
+      .map(t => t.trim().toLowerCase())
+      .filter(t => t.length > 0);
+
+    if (termsToAdd.length === 0) return;
+
+    setIsAdding(true);
+    setFeedback(null);
+
+    try {
+      const result = await onAddBulk(termsToAdd);
+      setInputValue('');
+      if (result.created > 0 || result.skipped > 0) {
+        setFeedback(`Added ${result.created} term${result.created !== 1 ? 's' : ''}${result.skipped > 0 ? `, ${result.skipped} skipped (duplicates)` : ''}`);
+        setTimeout(() => setFeedback(null), 3000);
+      }
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Failed to add terms');
+    } finally {
+      setIsAdding(false);
     }
   };
 
@@ -240,26 +308,37 @@ function TermColumn({
 
   return (
     <div className={`rounded-lg border ${borderColor} ${bgColor} p-4`}>
-      <h4 className={`font-semibold ${textColor} mb-3`}>{title}</h4>
+      <h4 className={`font-semibold ${textColor} mb-1`}>{title}</h4>
+      <p className="text-xs text-[var(--muted)] mb-3">{subtitle}</p>
 
-      <form onSubmit={handleSubmit} className="flex gap-2 mb-3">
-        <input
-          type="text"
-          value={newTerm}
-          onChange={(e) => setNewTerm(e.target.value)}
-          placeholder="Add term..."
-          className="flex-1 rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
+      <form onSubmit={handleSubmit} className="mb-3">
+        <textarea
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
+          placeholder="Enter terms (comma, newline, or semicolon separated)&#10;e.g.: term1, term2, term3"
+          rows={3}
+          className="w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--accent)] resize-none"
         />
-        <button
-          type="submit"
-          disabled={!newTerm.trim()}
-          className={`rounded-lg px-3 py-2 text-sm font-medium text-white ${buttonBg} disabled:opacity-50`}
-        >
-          +
-        </button>
+        <div className="flex items-center justify-between mt-2">
+          <span className="text-xs text-[var(--muted)]">
+            {inputValue.trim() ? `${inputValue.split(/[,\n;]+/).filter(t => t.trim()).length} terms` : ''}
+          </span>
+          <button
+            type="submit"
+            disabled={!inputValue.trim() || isAdding}
+            className={`rounded-lg px-4 py-2 text-sm font-medium text-white ${buttonBg} disabled:opacity-50`}
+          >
+            {isAdding ? 'Adding...' : 'Add Terms'}
+          </button>
+        </div>
+        {feedback && (
+          <p className={`text-xs mt-2 ${feedback.includes('Failed') ? 'text-red-600' : 'text-green-600'}`}>
+            {feedback}
+          </p>
+        )}
       </form>
 
-      <div className="space-y-2 max-h-64 overflow-y-auto">
+      <div className="space-y-2 max-h-48 overflow-y-auto">
         {terms.length === 0 ? (
           <p className="text-sm text-[var(--muted)] italic">No terms yet</p>
         ) : (
@@ -280,6 +359,9 @@ function TermColumn({
           ))
         )}
       </div>
+      {terms.length > 0 && (
+        <p className="text-xs text-[var(--muted)] mt-2">{terms.length} term{terms.length !== 1 ? 's' : ''}</p>
+      )}
     </div>
   );
 }

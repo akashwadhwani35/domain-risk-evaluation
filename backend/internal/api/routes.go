@@ -260,6 +260,7 @@ func (s *Server) Router() (*gin.Engine, error) {
 		// AI Training Terms
 		api.GET("/training-terms", s.handleGetTrainingTerms)
 		api.POST("/training-terms", s.handleCreateTrainingTerm)
+		api.POST("/training-terms/bulk", s.handleCreateTrainingTermsBulk)
 		api.DELETE("/training-terms/:id", s.handleDeleteTrainingTerm)
 
 		// Admin / Reset
@@ -1622,27 +1623,52 @@ func (s *Server) handleGetTrainingTerms(c *gin.Context) {
 		return
 	}
 
-	// Group by classification
-	yesRisk := make([]TrainingTermDTO, 0)
-	noRisk := make([]TrainingTermDTO, 0)
+	// Group by category and classification
+	response := TrainingTermsResponse{
+		YesRisk:   make([]TrainingTermDTO, 0),
+		NoRisk:    make([]TrainingTermDTO, 0),
+		Trademark: TrainingTermCategory{YesRisk: make([]TrainingTermDTO, 0), NoRisk: make([]TrainingTermDTO, 0)},
+		Vice:      TrainingTermCategory{YesRisk: make([]TrainingTermDTO, 0), NoRisk: make([]TrainingTermDTO, 0)},
+	}
+
 	for _, t := range terms {
 		dto := TrainingTermDTO{
 			ID:             t.ID,
 			Term:           t.Term,
 			Classification: t.Classification,
+			Category:       t.Category,
 			CreatedAt:      t.CreatedAt,
 		}
+
+		// Legacy grouping (all terms)
 		if t.Classification == "YES_RISK" {
-			yesRisk = append(yesRisk, dto)
+			response.YesRisk = append(response.YesRisk, dto)
 		} else {
-			noRisk = append(noRisk, dto)
+			response.NoRisk = append(response.NoRisk, dto)
+		}
+
+		// New category-based grouping
+		category := strings.ToLower(strings.TrimSpace(t.Category))
+		if category == "" {
+			category = "trademark" // default
+		}
+
+		if category == "vice" {
+			if t.Classification == "YES_RISK" {
+				response.Vice.YesRisk = append(response.Vice.YesRisk, dto)
+			} else {
+				response.Vice.NoRisk = append(response.Vice.NoRisk, dto)
+			}
+		} else {
+			if t.Classification == "YES_RISK" {
+				response.Trademark.YesRisk = append(response.Trademark.YesRisk, dto)
+			} else {
+				response.Trademark.NoRisk = append(response.Trademark.NoRisk, dto)
+			}
 		}
 	}
 
-	c.JSON(http.StatusOK, TrainingTermsResponse{
-		YesRisk: yesRisk,
-		NoRisk:  noRisk,
-	})
+	c.JSON(http.StatusOK, response)
 }
 
 // handleCreateTrainingTerm adds a new AI training term.
@@ -1665,14 +1691,24 @@ func (s *Server) handleCreateTrainingTerm(c *gin.Context) {
 		return
 	}
 
+	category := strings.ToLower(strings.TrimSpace(req.Category))
+	if category == "" {
+		category = "trademark" // default
+	}
+	if category != "trademark" && category != "vice" {
+		s.renderError(c, http.StatusBadRequest, errors.New("category must be trademark or vice"))
+		return
+	}
+
 	trainingTerm := &store.AITrainingTerm{
 		Term:           term,
 		Classification: classification,
+		Category:       category,
 	}
 
 	if err := s.db.CreateTrainingTerm(trainingTerm); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint") {
-			s.renderError(c, http.StatusConflict, errors.New("term already exists"))
+			s.renderError(c, http.StatusConflict, errors.New("term already exists for this category"))
 			return
 		}
 		s.renderError(c, http.StatusInternalServerError, err)
@@ -1683,7 +1719,99 @@ func (s *Server) handleCreateTrainingTerm(c *gin.Context) {
 		ID:             trainingTerm.ID,
 		Term:           trainingTerm.Term,
 		Classification: trainingTerm.Classification,
+		Category:       trainingTerm.Category,
 		CreatedAt:      trainingTerm.CreatedAt,
+	})
+}
+
+// handleCreateTrainingTermsBulk adds multiple AI training terms at once.
+func (s *Server) handleCreateTrainingTermsBulk(c *gin.Context) {
+	var req CreateTrainingTermsBulkRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		s.renderError(c, http.StatusBadRequest, err)
+		return
+	}
+
+	classification := strings.ToUpper(strings.TrimSpace(req.Classification))
+	if classification != "YES_RISK" && classification != "NO_RISK" {
+		s.renderError(c, http.StatusBadRequest, errors.New("classification must be YES_RISK or NO_RISK"))
+		return
+	}
+
+	category := strings.ToLower(strings.TrimSpace(req.Category))
+	if category != "trademark" && category != "vice" {
+		s.renderError(c, http.StatusBadRequest, errors.New("category must be trademark or vice"))
+		return
+	}
+
+	// Parse terms - support comma-separated, newline-separated, or array
+	var termsList []string
+	for _, t := range req.Terms {
+		// Split by comma or newline
+		parts := strings.FieldsFunc(t, func(r rune) bool {
+			return r == ',' || r == '\n' || r == '\r'
+		})
+		for _, p := range parts {
+			cleaned := strings.TrimSpace(strings.ToLower(p))
+			if cleaned != "" {
+				termsList = append(termsList, cleaned)
+			}
+		}
+	}
+
+	if len(termsList) == 0 {
+		s.renderError(c, http.StatusBadRequest, errors.New("no valid terms provided"))
+		return
+	}
+
+	// Deduplicate
+	seen := make(map[string]struct{})
+	uniqueTerms := make([]store.AITrainingTerm, 0, len(termsList))
+	for _, t := range termsList {
+		if _, ok := seen[t]; ok {
+			continue
+		}
+		seen[t] = struct{}{}
+		uniqueTerms = append(uniqueTerms, store.AITrainingTerm{
+			Term:           t,
+			Classification: classification,
+			Category:       category,
+		})
+	}
+
+	created, err := s.db.CreateTrainingTermsBulk(uniqueTerms)
+	if err != nil {
+		s.renderError(c, http.StatusInternalServerError, err)
+		return
+	}
+
+	// Fetch the created terms to return
+	allTerms, err := s.db.GetTrainingTerms()
+	if err != nil {
+		s.renderError(c, http.StatusInternalServerError, err)
+		return
+	}
+
+	// Filter to only return terms that match our request
+	var createdDTOs []TrainingTermDTO
+	for _, t := range allTerms {
+		if t.Category == category && t.Classification == classification {
+			if _, ok := seen[t.Term]; ok {
+				createdDTOs = append(createdDTOs, TrainingTermDTO{
+					ID:             t.ID,
+					Term:           t.Term,
+					Classification: t.Classification,
+					Category:       t.Category,
+					CreatedAt:      t.CreatedAt,
+				})
+			}
+		}
+	}
+
+	c.JSON(http.StatusCreated, CreateTrainingTermsBulkResponse{
+		Created: created,
+		Skipped: len(uniqueTerms) - created,
+		Terms:   createdDTOs,
 	})
 }
 

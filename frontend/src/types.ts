@@ -282,10 +282,32 @@ export interface TrainingTermDTO {
   id: number;
   term: string;
   classification: string;
+  category: string; // 'trademark' or 'vice'
   created_at: string;
 }
 
-export interface TrainingTermsResponse {
+export interface TrainingTermCategory {
   yes_risk: TrainingTermDTO[];
   no_risk: TrainingTermDTO[];
+}
+
+export interface TrainingTermsResponse {
+  // Legacy fields for backwards compatibility
+  yes_risk: TrainingTermDTO[];
+  no_risk: TrainingTermDTO[];
+  // New structured fields by category
+  trademark: TrainingTermCategory;
+  vice: TrainingTermCategory;
+}
+
+export interface CreateTrainingTermsBulkRequest {
+  terms: string[];
+  classification: string;
+  category: string;
+}
+
+export interface CreateTrainingTermsBulkResponse {
+  created: number;
+  skipped: number;
+  terms: TrainingTermDTO[];
 }

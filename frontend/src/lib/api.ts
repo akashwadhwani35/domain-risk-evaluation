@@ -19,7 +19,8 @@ import type {
   FeedbacksResponse,
   FeedbackStatsResponse,
   TrainingTermsResponse,
-  TrainingTermDTO
+  TrainingTermDTO,
+  CreateTrainingTermsBulkResponse
 } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:2000/api';
@@ -172,8 +173,25 @@ export async function fetchTrainingTerms(): Promise<TrainingTermsResponse> {
   return response.data;
 }
 
-export async function createTrainingTerm(term: string, classification: 'YES_RISK' | 'NO_RISK'): Promise<TrainingTermDTO> {
-  const response = await client.post<TrainingTermDTO>('/training-terms', { term, classification });
+export async function createTrainingTerm(
+  term: string,
+  classification: 'YES_RISK' | 'NO_RISK',
+  category: 'trademark' | 'vice' = 'trademark'
+): Promise<TrainingTermDTO> {
+  const response = await client.post<TrainingTermDTO>('/training-terms', { term, classification, category });
+  return response.data;
+}
+
+export async function createTrainingTermsBulk(
+  terms: string[],
+  classification: 'YES_RISK' | 'NO_RISK',
+  category: 'trademark' | 'vice'
+): Promise<CreateTrainingTermsBulkResponse> {
+  const response = await client.post<CreateTrainingTermsBulkResponse>('/training-terms/bulk', {
+    terms,
+    classification,
+    category
+  });
   return response.data;
 }
 

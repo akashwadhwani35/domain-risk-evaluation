@@ -380,11 +380,22 @@ type TrainingTermDTO struct {
 	ID             uint      `json:"id"`
 	Term           string    `json:"term"`
 	Classification string    `json:"classification"`
+	Category       string    `json:"category"` // trademark or vice
 	CreatedAt      time.Time `json:"created_at"`
 }
 
-// TrainingTermsResponse contains training terms grouped by classification.
+// TrainingTermsResponse contains training terms grouped by category and classification.
 type TrainingTermsResponse struct {
+	// Legacy fields for backwards compatibility
+	YesRisk []TrainingTermDTO `json:"yes_risk"`
+	NoRisk  []TrainingTermDTO `json:"no_risk"`
+	// New structured fields by category
+	Trademark TrainingTermCategory `json:"trademark"`
+	Vice      TrainingTermCategory `json:"vice"`
+}
+
+// TrainingTermCategory groups terms by classification within a category.
+type TrainingTermCategory struct {
 	YesRisk []TrainingTermDTO `json:"yes_risk"`
 	NoRisk  []TrainingTermDTO `json:"no_risk"`
 }
@@ -393,4 +404,19 @@ type TrainingTermsResponse struct {
 type CreateTrainingTermRequest struct {
 	Term           string `json:"term" binding:"required"`
 	Classification string `json:"classification" binding:"required"`
+	Category       string `json:"category"` // trademark or vice (defaults to trademark)
+}
+
+// CreateTrainingTermsBulkRequest is the request body for adding multiple training terms.
+type CreateTrainingTermsBulkRequest struct {
+	Terms          []string `json:"terms" binding:"required"`    // List of terms (or comma/newline separated in single string)
+	Classification string   `json:"classification" binding:"required"` // YES_RISK or NO_RISK
+	Category       string   `json:"category" binding:"required"`       // trademark or vice
+}
+
+// CreateTrainingTermsBulkResponse is the response for bulk term creation.
+type CreateTrainingTermsBulkResponse struct {
+	Created int               `json:"created"`
+	Skipped int               `json:"skipped"`
+	Terms   []TrainingTermDTO `json:"terms"`
 }

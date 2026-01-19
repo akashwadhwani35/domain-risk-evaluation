@@ -340,7 +340,8 @@ func (e *Evaluation) DeriveRecommendations() {
 // AITrainingTerm stores user-defined terms to teach the AI.
 type AITrainingTerm struct {
 	ID             uint      `gorm:"primaryKey"`
-	Term           string    `gorm:"size:256;not null;uniqueIndex"`
+	Term           string    `gorm:"size:256;not null;uniqueIndex:idx_term_category"`
 	Classification string    `gorm:"size:32;not null;index"` // YES_RISK or NO_RISK
+	Category       string    `gorm:"size:32;not null;uniqueIndex:idx_term_category;default:trademark"` // trademark or vice
 	CreatedAt      time.Time `gorm:"autoCreateTime"`
 }
