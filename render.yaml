@@ -35,9 +35,9 @@ services:
       - key: DISABLE_AI
         value: "false"
       - key: MARKS_LIMIT
-        value: "200000"
+        value: "50000"
       - key: POPULAR_MARK_LIMIT
-        value: "200000"
+        value: "50000"
       - key: LOG_LEVEL
         value: debug
 
