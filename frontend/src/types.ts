@@ -311,3 +311,23 @@ export interface CreateTrainingTermsBulkResponse {
   skipped: number;
   terms: TrainingTermDTO[];
 }
+
+// Auth types
+export interface AuthUser {
+  id: number;
+  email: string;
+}
+
+export interface AuthResponse {
+  message: string;
+  user?: AuthUser;
+}
+
+export interface RequestOTPRequest {
+  email: string;
+}
+
+export interface VerifyOTPRequest {
+  email: string;
+  code: string;
+}

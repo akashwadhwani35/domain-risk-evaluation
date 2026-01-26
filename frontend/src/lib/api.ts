@@ -20,14 +20,19 @@ import type {
   FeedbackStatsResponse,
   TrainingTermsResponse,
   TrainingTermDTO,
-  CreateTrainingTermsBulkResponse
+  CreateTrainingTermsBulkResponse,
+  AuthUser,
+  AuthResponse,
+  RequestOTPRequest,
+  VerifyOTPRequest
 } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:2000/api';
 
 const client = axios.create({
   baseURL: API_BASE,
-  timeout: 120000
+  timeout: 120000,
+  withCredentials: true // Required for cookie-based authentication
 });
 
 export async function uploadFiles(form: FormData): Promise<UploadResponse> {
@@ -201,5 +206,26 @@ export async function deleteTrainingTerm(id: number): Promise<void> {
 
 export async function resetDatabase(): Promise<{ success: boolean; message: string }> {
   const response = await client.post<{ success: boolean; message: string }>('/reset');
+  return response.data;
+}
+
+// Auth API functions
+export async function requestOTP(email: string): Promise<AuthResponse> {
+  const response = await client.post<AuthResponse>('/auth/request-otp', { email } as RequestOTPRequest);
+  return response.data;
+}
+
+export async function verifyOTP(email: string, code: string): Promise<AuthResponse> {
+  const response = await client.post<AuthResponse>('/auth/verify-otp', { email, code } as VerifyOTPRequest);
+  return response.data;
+}
+
+export async function logout(): Promise<AuthResponse> {
+  const response = await client.post<AuthResponse>('/auth/logout');
+  return response.data;
+}
+
+export async function getCurrentUser(): Promise<AuthUser> {
+  const response = await client.get<AuthUser>('/auth/me');
   return response.data;
 }

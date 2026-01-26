@@ -30,7 +30,7 @@ func Open(path string, silent bool) (*Database, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
-	if err := db.AutoMigrate(&Mark{}, &Domain{}, &Evaluation{}, &CommercialSale{}, &PopularMark{}, &CSVBatch{}, &BatchRequest{}, &DomainBatch{}, &JobState{}, &EvaluationOverride{}, &FeedbackEmbedding{}, &AITrainingTerm{}); err != nil {
+	if err := db.AutoMigrate(&Mark{}, &Domain{}, &Evaluation{}, &CommercialSale{}, &PopularMark{}, &CSVBatch{}, &BatchRequest{}, &DomainBatch{}, &JobState{}, &EvaluationOverride{}, &FeedbackEmbedding{}, &AITrainingTerm{}, &User{}, &OTPCode{}); err != nil {
 		return nil, fmt.Errorf("auto migrate: %w", err)
 	}
 	if err := db.Exec("PRAGMA journal_mode=WAL").Error; err != nil {
@@ -1605,4 +1605,121 @@ func (d *Database) ResetAllData() error {
 	d.gorm.Exec("DELETE FROM sqlite_sequence WHERE name IN ('feedback_embeddings', 'evaluation_overrides', 'batch_requests', 'domain_batches', 'job_states', 'evaluations', 'csv_batches', 'ai_training_terms')")
 
 	return nil
+}
+
+// ========================
+// User and OTP Methods
+// ========================
+
+// CreateUser creates a new user or returns the existing one by email.
+func (d *Database) CreateUser(email string) (*User, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" {
+		return nil, errors.New("email is required")
+	}
+
+	var existing User
+	if err := d.gorm.Where("email = ?", email).First(&existing).Error; err == nil {
+		return &existing, nil
+	}
+
+	user := &User{Email: email}
+	if err := d.gorm.Create(user).Error; err != nil {
+		// Handle race condition - another process created the user
+		if strings.Contains(err.Error(), "UNIQUE constraint") {
+			if err := d.gorm.Where("email = ?", email).First(&existing).Error; err == nil {
+				return &existing, nil
+			}
+		}
+		return nil, err
+	}
+	return user, nil
+}
+
+// GetUserByEmail retrieves a user by email address.
+func (d *Database) GetUserByEmail(email string) (*User, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	var user User
+	if err := d.gorm.Where("email = ?", email).First(&user).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+// GetUserByID retrieves a user by ID.
+func (d *Database) GetUserByID(id uint) (*User, error) {
+	var user User
+	if err := d.gorm.First(&user, id).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+// UpdateUserLastLogin updates the last login timestamp for a user.
+func (d *Database) UpdateUserLastLogin(userID uint) error {
+	now := time.Now()
+	return d.gorm.Model(&User{}).Where("id = ?", userID).Update("last_login", &now).Error
+}
+
+// CreateOTPCode stores a new OTP code for the given email.
+func (d *Database) CreateOTPCode(email, code string, expiresAt time.Time) (*OTPCode, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" {
+		return nil, errors.New("email is required")
+	}
+	if code == "" {
+		return nil, errors.New("code is required")
+	}
+
+	otp := &OTPCode{
+		Email:     email,
+		Code:      code,
+		ExpiresAt: expiresAt,
+	}
+	if err := d.gorm.Create(otp).Error; err != nil {
+		return nil, err
+	}
+	return otp, nil
+}
+
+// GetValidOTPCode retrieves a valid (unexpired, unused, attempts < 3) OTP for the email.
+func (d *Database) GetValidOTPCode(email, code string) (*OTPCode, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	var otp OTPCode
+	if err := d.gorm.Where(
+		"email = ? AND code = ? AND used = ? AND attempts < ? AND expires_at > ?",
+		email, code, false, 3, time.Now(),
+	).First(&otp).Error; err != nil {
+		return nil, err
+	}
+	return &otp, nil
+}
+
+// IncrementOTPAttempts increments the attempt count for an OTP.
+func (d *Database) IncrementOTPAttempts(otpID uint) error {
+	return d.gorm.Model(&OTPCode{}).Where("id = ?", otpID).
+		UpdateColumn("attempts", gorm.Expr("attempts + 1")).Error
+}
+
+// MarkOTPUsed marks an OTP code as used.
+func (d *Database) MarkOTPUsed(otpID uint) error {
+	return d.gorm.Model(&OTPCode{}).Where("id = ?", otpID).Update("used", true).Error
+}
+
+// CountRecentOTPRequests counts OTP requests for an email since the given time.
+func (d *Database) CountRecentOTPRequests(email string, since time.Time) (int64, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	var count int64
+	if err := d.gorm.Model(&OTPCode{}).
+		Where("email = ? AND created_at >= ?", email, since).
+		Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+// CleanupExpiredOTPs removes OTP codes that have expired.
+func (d *Database) CleanupExpiredOTPs() error {
+	return d.gorm.Where("expires_at < ? OR used = ?", time.Now(), true).
+		Delete(&OTPCode{}).Error
 }

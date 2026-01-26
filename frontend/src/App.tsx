@@ -9,6 +9,8 @@ import OverrideModal from './components/OverrideModal';
 import AILearningDashboard from './components/AILearningDashboard';
 import EvaluationsQueue from './components/EvaluationsQueue';
 import Tooltip from './components/Tooltip';
+import LoginPage from './components/LoginPage';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import {
   buildWebSocketURL,
   cancelEvaluation,
@@ -142,7 +144,8 @@ const applyEvaluationUpdate = (rows: EvaluationDTO[], evaluation: EvaluationDTO,
   return sortEvaluations(filtered, sort);
 };
 
-export default function App() {
+function AppContent() {
+  const { user, logout } = useAuth();
   const [evaluations, setEvaluations] = useState<EvaluationDTO[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
@@ -874,6 +877,20 @@ export default function App() {
               >
                 Browse Datasets
               </button>
+
+              {/* User info and logout */}
+              {user && (
+                <div className="flex items-center gap-3 border-l border-[var(--line)] pl-3">
+                  <span className="text-sm text-[var(--muted)]">{user.email}</span>
+                  <button
+                    type="button"
+                    onClick={() => logout()}
+                    className="rounded-lg border border-[var(--line)] px-3 py-2 text-sm font-medium text-[var(--text)] hover:bg-[var(--surface-2)] transition-colors"
+                  >
+                    Sign Out
+                  </button>
+                </div>
+              )}
             </div>
           </header>
 
@@ -1119,4 +1136,38 @@ export default function App() {
       )}
     </>
   );
+}
+
+// Main App component with authentication wrapper
+export default function App() {
+  return (
+    <AuthProvider>
+      <AuthenticatedApp />
+    </AuthProvider>
+  );
+}
+
+// Component that handles auth state and shows login or main app
+function AuthenticatedApp() {
+  const { user, loading } = useAuth();
+
+  // Show loading spinner while checking auth
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[var(--background)]">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-8 h-8 border-4 border-[var(--line)] border-t-[var(--accent)] rounded-full animate-spin" />
+          <p className="text-[var(--muted)]">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show login page if not authenticated
+  if (!user) {
+    return <LoginPage />;
+  }
+
+  // Show main app if authenticated
+  return <AppContent />;
 }

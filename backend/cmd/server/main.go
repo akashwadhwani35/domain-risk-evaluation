@@ -102,6 +102,11 @@ func main() {
 
 	disableAI := strings.EqualFold(strings.TrimSpace(os.Getenv("DISABLE_AI")), "true")
 
+	// Auth configuration
+	jwtSecret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
+	resendAPIKey := strings.TrimSpace(os.Getenv("RESEND_API_KEY"))
+	resendFromEmail := strings.TrimSpace(os.Getenv("RESEND_FROM_EMAIL"))
+
 	cfg := api.Config{
 		DBPath:             filepath.Join(dataDir, "domain-risk.db"),
 		SeedsPath:          filepath.Join(baseDir, "internal", "scoring", "fanciful_seed.json"),
@@ -121,6 +126,10 @@ func main() {
 		PopularLimit:    popularLimit,
 		PopularMinCount: popularMinCount,
 		MarksLimit:      marksLimit,
+		// Auth configuration
+		JWTSecret:       jwtSecret,
+		ResendAPIKey:    resendAPIKey,
+		ResendFromEmail: resendFromEmail,
 	}
 
 	if override := strings.TrimSpace(os.Getenv("DOMAIN_RISK_DB_PATH")); override != "" {

@@ -345,3 +345,22 @@ type AITrainingTerm struct {
 	Category       string    `gorm:"size:32;not null;uniqueIndex:idx_term_category;default:trademark"` // trademark or vice
 	CreatedAt      time.Time `gorm:"autoCreateTime"`
 }
+
+// User represents an authenticated user.
+type User struct {
+	ID        uint       `gorm:"primaryKey"`
+	Email     string     `gorm:"uniqueIndex;size:255;not null"`
+	CreatedAt time.Time  `gorm:"autoCreateTime"`
+	LastLogin *time.Time `gorm:"index"`
+}
+
+// OTPCode stores one-time password codes for email verification.
+type OTPCode struct {
+	ID        uint      `gorm:"primaryKey"`
+	Email     string    `gorm:"index;size:255;not null"`
+	Code      string    `gorm:"size:6;not null"`
+	ExpiresAt time.Time `gorm:"index;not null"`
+	Used      bool      `gorm:"default:false"`
+	Attempts  int       `gorm:"default:0"`
+	CreatedAt time.Time `gorm:"autoCreateTime"`
+}

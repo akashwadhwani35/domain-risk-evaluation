@@ -23,6 +23,7 @@ import (
 	"gorm.io/gorm"
 
 	"domain-risk-eval/backend/internal/ai"
+	"domain-risk-eval/backend/internal/auth"
 	"domain-risk-eval/backend/internal/commercial"
 	"domain-risk-eval/backend/internal/match"
 	"domain-risk-eval/backend/internal/scoring"
@@ -46,6 +47,10 @@ type Config struct {
 	PopularLimit       int
 	PopularMinCount    int
 	MarksLimit         int
+	// Auth configuration
+	JWTSecret      string
+	ResendAPIKey   string
+	ResendFromEmail string
 }
 
 // Server wires HTTP handlers with persistence and scoring.
@@ -79,6 +84,9 @@ type Server struct {
 	tldCacheTotal     int64
 	tldCacheTruncated bool
 	tldCacheMu        sync.Mutex
+	// Auth services
+	authService   *auth.Service
+	emailService  *auth.EmailService
 }
 
 const commercialMinPrice = 10000.0
@@ -157,6 +165,33 @@ func NewServer(cfg Config) (*Server, error) {
 		}
 	}
 
+	// Initialize auth service if JWT secret is configured
+	var authService *auth.Service
+	if cfg.JWTSecret != "" {
+		var err error
+		authService, err = auth.NewService(cfg.JWTSecret)
+		if err != nil {
+			return nil, fmt.Errorf("auth service: %w", err)
+		}
+		logrus.Info("authentication enabled")
+	} else {
+		logrus.Warn("JWT_SECRET not configured - authentication disabled")
+	}
+
+	// Initialize email service if Resend credentials are configured
+	var emailService *auth.EmailService
+	if cfg.ResendAPIKey != "" && cfg.ResendFromEmail != "" {
+		var err error
+		emailService, err = auth.NewEmailService(cfg.ResendAPIKey, cfg.ResendFromEmail)
+		if err != nil {
+			logrus.WithError(err).Warn("email service initialization failed")
+		} else {
+			logrus.WithField("from", cfg.ResendFromEmail).Info("email service enabled")
+		}
+	} else {
+		logrus.Warn("RESEND_API_KEY or RESEND_FROM_EMAIL not configured - email service disabled")
+	}
+
 	server := &Server{
 		db:              db,
 		seedPath:        seedPath,
@@ -174,6 +209,8 @@ func NewServer(cfg Config) (*Server, error) {
 		popularLimit:    cfg.PopularLimit,
 		popularMinCount: cfg.PopularMinCount,
 		marksLimit:      cfg.MarksLimit,
+		authService:     authService,
+		emailService:    emailService,
 	}
 
 	// Initialize feedback retriever if embedding client is available
@@ -223,49 +260,80 @@ func (s *Server) Router() (*gin.Engine, error) {
 	r := gin.Default()
 
 	corsCfg := cors.DefaultConfig()
-	corsCfg.AllowAllOrigins = true // Allow all origins for simplicity
+	if len(s.allowedOrigins) > 0 {
+		corsCfg.AllowOrigins = s.allowedOrigins
+	} else {
+		corsCfg.AllowAllOrigins = true
+	}
+	corsCfg.AllowCredentials = true // Required for cookies
 	corsCfg.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization"}
 	corsCfg.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
 	r.Use(cors.New(corsCfg))
 
+	// Public routes (no authentication required)
 	r.GET("/api/healthz", s.handleHealth)
-	r.GET("/api/config", s.handleConfig)
 
-	api := r.Group("/api")
+	// Auth routes (public)
+	authGroup := r.Group("/api/auth")
 	{
-		api.GET("/batches", s.handleListBatches)
-		api.GET("/batches/:id", s.handleGetBatch)
-		api.GET("/batches/:id/results", s.handleBatchResults)
-		api.DELETE("/batches/:id", s.handleDeleteBatch)
-		api.DELETE("/batches/:id/results", s.handleClearBatchResults)
-		api.GET("/requests/:id/status", s.handleRequestStatus)
-		api.POST("/upload", s.handleUpload)
-		api.POST("/evaluate", s.handleEvaluate)
-		api.POST("/evaluate/single", s.handleEvaluateSingle)
-		api.GET("/evaluate/status", s.handleEvaluateStatus)
-		api.DELETE("/evaluate/:jobID", s.handleCancelEvaluate)
-		api.GET("/evaluate/stream", s.handleEvaluateStream)
-		api.GET("/results", s.handleResults)
-		api.GET("/export.csv", s.handleExportCSV)
-		api.GET("/export.json", s.handleExportJSON)
-		api.GET("/stats", s.handleStats)
-
-		// Override and feedback routes
-		api.POST("/evaluations/:id/override", s.handleCreateOverride)
-		api.GET("/evaluations/:id/history", s.handleGetEvaluationHistory)
-		api.GET("/overrides", s.handleListOverrides)
-		api.GET("/feedback", s.handleListFeedback)
-		api.GET("/feedback/stats", s.handleGetFeedbackStats)
-
-		// AI Training Terms
-		api.GET("/training-terms", s.handleGetTrainingTerms)
-		api.POST("/training-terms", s.handleCreateTrainingTerm)
-		api.POST("/training-terms/bulk", s.handleCreateTrainingTermsBulk)
-		api.DELETE("/training-terms/:id", s.handleDeleteTrainingTerm)
-
-		// Admin / Reset
-		api.POST("/reset", s.handleReset)
+		authGroup.POST("/request-otp", s.handleRequestOTP)
+		authGroup.POST("/verify-otp", s.handleVerifyOTP)
+		authGroup.POST("/logout", s.handleLogout)
 	}
+
+	// Protected routes - require authentication if auth service is configured
+	api := r.Group("/api")
+	if s.authService != nil {
+		api.Use(auth.JWTMiddleware(s.authService))
+	}
+
+	// Auth me route (protected)
+	api.GET("/auth/me", s.handleGetCurrentUser)
+
+	// Config route
+	api.GET("/config", s.handleConfig)
+
+	// Batch routes
+	api.GET("/batches", s.handleListBatches)
+	api.GET("/batches/:id", s.handleGetBatch)
+	api.GET("/batches/:id/results", s.handleBatchResults)
+	api.DELETE("/batches/:id", s.handleDeleteBatch)
+	api.DELETE("/batches/:id/results", s.handleClearBatchResults)
+
+	// Request routes
+	api.GET("/requests/:id/status", s.handleRequestStatus)
+
+	// Upload and evaluate routes
+	api.POST("/upload", s.handleUpload)
+	api.POST("/evaluate", s.handleEvaluate)
+	api.POST("/evaluate/single", s.handleEvaluateSingle)
+	api.GET("/evaluate/status", s.handleEvaluateStatus)
+	api.DELETE("/evaluate/:jobID", s.handleCancelEvaluate)
+	api.GET("/evaluate/stream", s.handleEvaluateStream)
+
+	// Results routes
+	api.GET("/results", s.handleResults)
+	api.GET("/export.csv", s.handleExportCSV)
+	api.GET("/export.json", s.handleExportJSON)
+
+	// Stats route
+	api.GET("/stats", s.handleStats)
+
+	// Override and feedback routes
+	api.POST("/evaluations/:id/override", s.handleCreateOverride)
+	api.GET("/evaluations/:id/history", s.handleGetEvaluationHistory)
+	api.GET("/overrides", s.handleListOverrides)
+	api.GET("/feedback", s.handleListFeedback)
+	api.GET("/feedback/stats", s.handleGetFeedbackStats)
+
+	// AI Training Terms
+	api.GET("/training-terms", s.handleGetTrainingTerms)
+	api.POST("/training-terms", s.handleCreateTrainingTerm)
+	api.POST("/training-terms/bulk", s.handleCreateTrainingTermsBulk)
+	api.DELETE("/training-terms/:id", s.handleDeleteTrainingTerm)
+
+	// Admin / Reset
+	api.POST("/reset", s.handleReset)
 
 	return r, nil
 }
