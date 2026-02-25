@@ -68,15 +68,15 @@ func SetAuthCookie(c *gin.Context, token string, expiresAt interface{}) {
 	// Determine if we're in production (HTTPS)
 	secure := isSecureContext(c)
 
-	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetSameSite(http.SameSiteNoneMode)
 	c.SetCookie(
 		CookieName,
 		token,
 		maxAge,
 		"/",
-		"",     // domain - empty means current domain
-		secure, // secure flag
-		true,   // httpOnly - prevents JavaScript access
+		"",   // domain - empty means current domain
+		true, // secure flag - required for SameSite=None
+		true, // httpOnly - prevents JavaScript access
 	)
 }
 
@@ -84,14 +84,14 @@ func SetAuthCookie(c *gin.Context, token string, expiresAt interface{}) {
 func ClearAuthCookie(c *gin.Context) {
 	secure := isSecureContext(c)
 
-	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetSameSite(http.SameSiteNoneMode)
 	c.SetCookie(
 		CookieName,
 		"",
 		-1, // negative max age = delete
 		"/",
 		"",
-		secure,
+		true, // secure flag - required for SameSite=None
 		true,
 	)
 }
