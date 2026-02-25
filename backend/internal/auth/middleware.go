@@ -65,9 +65,6 @@ func SetAuthCookie(c *gin.Context, token string, expiresAt interface{}) {
 	// Cookie max age in seconds (24 hours)
 	maxAge := int(JWTExpiry.Seconds())
 
-	// Determine if we're in production (HTTPS)
-	secure := isSecureContext(c)
-
 	c.SetSameSite(http.SameSiteNoneMode)
 	c.SetCookie(
 		CookieName,
@@ -82,8 +79,6 @@ func SetAuthCookie(c *gin.Context, token string, expiresAt interface{}) {
 
 // ClearAuthCookie removes the authentication cookie
 func ClearAuthCookie(c *gin.Context) {
-	secure := isSecureContext(c)
-
 	c.SetSameSite(http.SameSiteNoneMode)
 	c.SetCookie(
 		CookieName,
