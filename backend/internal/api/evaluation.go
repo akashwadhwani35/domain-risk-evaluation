@@ -28,6 +28,7 @@ const (
 	aiMaxRetries                  = 6
 	aiInitialBackoff              = 2 * time.Second
 	aiMaxBackoff                  = 10 * time.Second
+	aiRateLimit                   = 5 // max AI calls per second across all workers
 )
 
 // evaluationJob tracks the state of a running evaluation.
@@ -256,6 +257,10 @@ func (s *Server) runEvaluation(ctx context.Context, job *evaluationJob, req Eval
 		usptoCache   = make(map[string]usp.LookupResult)
 	)
 
+	// Rate limiter: tick every 1/aiRateLimit seconds so we never exceed aiRateLimit calls/sec.
+	aiTicker := time.NewTicker(time.Second / time.Duration(aiRateLimit))
+	defer aiTicker.Stop()
+
 	var workerWG sync.WaitGroup
 	jobID := job.id
 	batchID := job.batchID
@@ -270,6 +275,12 @@ func (s *Server) runEvaluation(ctx context.Context, job *evaluationJob, req Eval
 				case <-ctx.Done():
 					return
 				default:
+				}
+				// Wait for rate limiter before making AI call
+				select {
+				case <-aiTicker.C:
+				case <-ctx.Done():
+					return
 				}
 				res := s.evaluateDomain(ctx, jobID, batchID, batchName, task, trademarkScorer, marks, totalDomains, usptoCache, &usptoCacheMu)
 				select {
@@ -663,22 +674,11 @@ func (s *Server) evaluateDomain(
 	aiDuration := time.Since(aiStart)
 	aiFallback := false
 	if err != nil {
-		if errors.Is(err, ai.ErrInvalidJSON) {
-			aiFallback = true
-			logger.WithError(err).Warn("AI decision parse failed; using heuristic fallback")
-			decision = ai.Decision{
-				Recommendation: overall.Recommendation,
-			}
-		} else if isTemporaryAIError(err) {
-			aiFallback = true
-			logger.WithError(err).Warn("AI decision temporary failure; using heuristic fallback")
-			decision = ai.Decision{
-				Recommendation: overall.Recommendation,
-			}
-		} else {
-			logger.WithError(err).Error("AI decision failed")
-			result.Err = err
-			return result
+		// All AI errors are soft fallbacks — never kill the job over an AI failure.
+		aiFallback = true
+		logger.WithError(err).Warn("AI decision failed; using heuristic fallback")
+		decision = ai.Decision{
+			Recommendation: overall.Recommendation,
 		}
 	}
 
@@ -836,19 +836,21 @@ func (s *Server) generateDecision(
 	tokens := collectDomainTokens(profile)
 	viceTerms := append([]string{}, viceResult.Categories...)
 
-	// Retrieve similar feedback for AI learning
+	// Retrieve similar feedback for AI learning (with timeout to avoid blocking the pipeline)
 	var feedbackContext string
 	if s.feedbackRetriever != nil && s.feedbackRetriever.Enabled() {
+		feedbackCtx, feedbackCancel := context.WithTimeout(ctx, 2*time.Second)
 		feedbackResults, err := s.feedbackRetriever.RetrieveSimilar(
-			ctx,
+			feedbackCtx,
 			domain,
 			secondLevel,
 			trademarkResult.Score,
 			viceResult.Score,
 			overall.Recommendation,
 		)
+		feedbackCancel()
 		if err != nil {
-			logrus.WithError(err).WithField("domain", domain).Warn("feedback retrieval failed")
+			logrus.WithError(err).WithField("domain", domain).Warn("feedback retrieval failed or timed out")
 		} else if len(feedbackResults) > 0 {
 			feedbackContext = ai.FormatFeedbackForPrompt(feedbackResults)
 			logrus.WithFields(logrus.Fields{
