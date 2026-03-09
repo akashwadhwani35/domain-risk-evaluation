@@ -241,14 +241,19 @@ func (c *Client) buildPayload(input ExplanationInput) map[string]any {
 	messages := []map[string]string{
 		{
 			"role":    "system",
-			"content": `You are a trademark lawyer. Identify domains that could ACTUALLY cause legal problems.
+			"content": `You are a trademark lawyer assessing domain names. Use YOUR OWN knowledge of brands and trademarks. Do NOT rely on any system signals — decide independently.
 
 Question: "Would a major company sue over this domain?"
 
-YES_RISK - A company WILL sue:
-- World-famous brands: Google, Microsoft, Nike, Disney, Netflix, Spotify, Pinterest, Uber, Tesla, Ferrari, Gucci, Rolex, Starbucks, McDonald's
-- Famous products: iPod, iPhone, Xbox, Alexa, Gmail, Kindle
+YES_RISK - A company WILL sue (trademark):
+- Exact famous brands: Google, Samsung, Microsoft, Nike, Disney, Netflix, Spotify, Pinterest, Uber, Tesla, Ferrari, Gucci, Rolex, Starbucks, McDonald's, Amazon, Apple, Facebook, Instagram, TikTok, Adidas, Toyota, Honda, BMW, Porsche, PayPal, Sony, Intel, Xerox, Lego
+- Brand + generic word: samsungphone, googlesupport, nikeshop, teslaparts, amazonkindle, appleipad
+- Famous products: iPod, iPhone, Xbox, Alexa, Gmail, Kindle, PlayStation
 - Famous media: CNN, ESPN, HBO, BBC, MTV, TED/TEDx
+- Minor misspellings/variations of above: amazn, googl, samsng, nkie
+
+YES_RISK - Vice content (independent of trademark):
+- Domains with obvious vulgar/sexual/offensive terms (porn, xxx, cock, pussy, fuck, cum, jizz, ass, dick, anal, nazi, rape, etc.)
 
 NO_RISK - Nobody will sue (THIS IS THE DEFAULT):
 - Random letters: aigo, omie, efit, visn, bcms, biox, xoft, mrkt, tvdb, mixr
@@ -256,20 +261,24 @@ NO_RISK - Nobody will sue (THIS IS THE DEFAULT):
 - Generic terms: procurement, janitorial, locksmith, electrician, cybersex, threesome
 - Person names: brian, amanda, david
 - Abbreviations: rmbs, udoc, macg
+- Foreign words: mutuo, offre, banche, acquistare
 - If it's not a household brand name → NO_RISK
 
-POTENTIAL_RISK - ONLY use when it's genuinely a famous brand AND a common word:
-- Apple (company + fruit), Amazon (company + river), Shell (company + seashell)
+POTENTIAL_RISK - ONLY use when genuinely ambiguous:
+- Famous brand that is ALSO a common word: Apple (fruit), Amazon (river), Shell (seashell)
 - This should be RARE - less than 5% of domains
 
-ALSO FLAG AS YES_RISK: Domains with obvious vulgar/sexual/offensive terms (porn, xxx, cock, pussy, fuck, cum, jizz, ass, dick, anal, nazi, rape, etc.) regardless of trademark status.
-
-CRITICAL: Your decision MUST match your explanation. If you say "no trademark risk" or "unlikely to cause legal trouble" → decision MUST be NO_RISK.
+IMPORTANT:
+- Assess trademark risk and vice risk SEPARATELY. A domain can have trademark risk without vice risk and vice versa.
+- Your decision MUST match your explanation. If you say "no trademark risk" → decision MUST be NO_RISK.
+- When in doubt about a brand, it's better to flag YES_RISK than to miss it.
 
 OUTPUT JSON:
 {
-  "word_type": "famous_brand" | "common_word" | "random_letters",
+  "word_type": "famous_brand" | "common_word" | "random_letters" | "contains_brand",
   "famous_brand_match": "Brand name or empty",
+  "trademark_score": 0-5,
+  "vice_score": 0-5,
   "decision": "YES_RISK" | "NO_RISK" | "POTENTIAL_RISK",
   "explanation": "1 sentence"
 }`,
@@ -295,61 +304,26 @@ func (c *Client) buildUserPrompt(input ExplanationInput) string {
 	fmt.Fprintf(builder, "Domain: %s\n", input.Domain)
 	fmt.Fprintf(builder, "Second-level label: %s\n", strings.TrimSpace(input.SecondLevel))
 	fmt.Fprintf(builder, "Top-level domain: %s\n", strings.TrimSpace(input.TopLevel))
-	fmt.Fprintf(builder, "Popular token: %t\n", input.PopularToken)
-	fmt.Fprintf(builder, "Generic popular token: %t\n", input.GenericPopular)
-	fmt.Fprintf(builder, "Fanciful unknown token: %t\n", input.FancifulUnknown)
 	if len(input.DomainTokens) > 0 {
 		fmt.Fprintf(builder, "Domain tokens: %s\n", strings.Join(input.DomainTokens, ", "))
 	}
-	fmt.Fprintf(builder, "Trademark Score: %d (%s)\n", input.Trademark.Score, input.Trademark.Type)
+	// Only provide factual evidence — no heuristic scores or recommendations that anchor the AI.
 	if input.Trademark.MatchedTrademark != "" {
-		fmt.Fprintf(builder, "Matched Trademark: %s\n", input.Trademark.MatchedTrademark)
+		fmt.Fprintf(builder, "USPTO trademark match found: %s\n", input.Trademark.MatchedTrademark)
 	}
-	fmt.Fprintf(builder, "Trademark Confidence: %.2f\n", input.Trademark.Confidence)
-	fmt.Fprintf(builder, "Vice Score: %d\n", input.Vice.Score)
 	if len(input.Vice.Categories) > 0 {
-		fmt.Fprintf(builder, "Vice Categories: %s\n", strings.Join(input.Vice.Categories, ", "))
-	}
-	if len(input.ViceTerms) > 0 {
-		fmt.Fprintf(builder, "Vice Terms: %s\n", strings.Join(input.ViceTerms, ", "))
-	}
-	fmt.Fprintf(builder, "Vice Confidence: %.2f\n", input.Vice.Confidence)
-	fmt.Fprintf(builder, "Overall Recommendation: %s (confidence %.2f)\n", input.Overall.Recommendation, input.Overall.Confidence)
-	if input.MarksCount > 0 {
-		fmt.Fprintf(builder, "Marks in database: %d\n", input.MarksCount)
-	}
-	if input.DomainsCount > 0 {
-		fmt.Fprintf(builder, "Domains evaluated in batch: %d\n", input.DomainsCount)
+		fmt.Fprintf(builder, "Vice terms detected: %s\n", strings.Join(input.Vice.Categories, ", "))
+	} else if len(input.ViceTerms) > 0 {
+		fmt.Fprintf(builder, "Vice terms detected: %s\n", strings.Join(input.ViceTerms, ", "))
 	}
 	if len(input.CloseMatches) > 0 {
-		fmt.Fprintf(builder, "Closest trademark references: %s\n", strings.Join(input.CloseMatches, "; "))
-	}
-	if input.Recommendation != "" {
-		fmt.Fprintf(builder, "Default recommendation: %s\n", strings.ToUpper(input.Recommendation))
-	}
-	if input.AllowOverride {
-		builder.WriteString("You may override the default recommendation if contextual evidence supports doing so.\n")
+		fmt.Fprintf(builder, "Close USPTO trademark matches: %s\n", strings.Join(input.CloseMatches, "; "))
 	}
 	if input.HasSubstringAlerts {
-		builder.WriteString("Some vice terms appear only as substrings of larger words; consider whether they are false positives.\n")
+		builder.WriteString("Note: some flagged terms appear only as substrings of larger words; consider whether they are false positives.\n")
 	}
 	if strings.TrimSpace(input.CommercialSource) != "" && input.CommercialSimilarity > 0 {
-		prefix := "Commercial context"
-		if input.CommercialOverride {
-			prefix = "Commercial signal"
-		}
-		builder.WriteString(fmt.Sprintf("%s: %s (similarity %.2f).\n", prefix, strings.TrimSpace(input.CommercialSource), input.CommercialSimilarity))
-	} else if input.CommercialOverride && input.CommercialPrice > 0 {
-		builder.WriteString(fmt.Sprintf("Commercial signal: historical sale around $%.0f supports market demand.\n", input.CommercialPrice))
-	}
-	builder.WriteString("Adjust scores based on evidence if needed.\n")
-	if len(input.CloseMatches) > 0 {
-		builder.WriteString("Exact matches indicate high-risk conflict.\n")
-	} else {
-		builder.WriteString("No exact USPTO matches found.\n")
-	}
-	if cue := strings.TrimSpace(input.OpeningCue); cue != "" {
-		builder.WriteString(fmt.Sprintf("Begin the first sentence with \"%s\" while keeping the tone natural and directly referencing the second-level label.\n", cue))
+		builder.WriteString(fmt.Sprintf("Commercial context: %s (similarity %.2f).\n", strings.TrimSpace(input.CommercialSource), input.CommercialSimilarity))
 	}
 	// Include feedback from past corrections if available
 	if feedback := strings.TrimSpace(input.FeedbackContext); feedback != "" {
@@ -359,6 +333,9 @@ func (c *Client) buildUserPrompt(input ExplanationInput) string {
 	}
 	second := strings.TrimSpace(input.SecondLevel)
 	top := strings.TrimSpace(input.TopLevel)
+	if cue := strings.TrimSpace(input.OpeningCue); cue != "" {
+		builder.WriteString(fmt.Sprintf("Begin the first sentence with \"%s\" while keeping the tone natural and directly referencing the second-level label.\n", cue))
+	}
 	if second != "" {
 		builder.WriteString(fmt.Sprintf("Write two-sentence narrative: first describes \"%s\" intent with .%s context; second states action with justification. Vary openings, sound human, cite evidence.\n", second, top))
 	} else {

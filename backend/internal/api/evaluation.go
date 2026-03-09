@@ -690,71 +690,38 @@ func (s *Server) evaluateDomain(
 			decision.Recommendation = overall.Recommendation
 		}
 	} else {
-		finalScore := trademarkResult.Score
+		// Trust the AI's scores when provided, otherwise keep heuristic scores
 		if decision.TrademarkScore != nil {
-			finalScore = clampScore(*decision.TrademarkScore)
+			trademarkResult.Score = clampScore(*decision.TrademarkScore)
 		}
-		popularWithoutTrademark := popularToken && strings.TrimSpace(trademarkResult.MatchedTrademark) == ""
-		if genericPopular || popularWithoutTrademark {
-			finalScore = 3
-			trademarkResult.Type = "generic"
-			if decision.FamousMatch != nil {
-				*decision.FamousMatch = false
-			}
-			decision.FamousLabel = ""
-		} else if popularToken {
-			finalScore = 5
-			if decision.FamousMatch == nil {
-				decision.FamousMatch = new(bool)
-			}
-			*decision.FamousMatch = true
-			if strings.TrimSpace(decision.FamousLabel) == "" {
-				label := strings.TrimSpace(secondLevel)
-				if label == "" {
-					label = strings.ToUpper(normalizedSecondLevel)
-				}
-				decision.FamousLabel = label
-			}
-		} else if fancifulUnknown && finalScore > 3 {
-			finalScore = 3
-		}
-		scoreCopy := finalScore
-		decision.TrademarkScore = &scoreCopy
-		trademarkResult.Score = finalScore
-		if popularToken {
-			trademarkResult.Type = "popular"
-			if strings.TrimSpace(trademarkResult.MatchedTrademark) == "" {
-				trademarkResult.MatchedTrademark = strings.TrimSpace(strings.ToUpper(normalizedSecondLevel))
-			}
-			trademarkResult.Confidence = 0.95
-		} else if genericPopular || popularWithoutTrademark {
-			trademarkResult.Type = "generic"
-			if trademarkResult.Confidence < 0.75 {
-				trademarkResult.Confidence = 0.75
-			}
-		} else if fancifulUnknown {
-			trademarkResult.Type = "fanciful"
-			if trademarkResult.Confidence < 0.7 {
-				trademarkResult.Confidence = 0.7
-			}
-		}
-
-		finalViceScore := viceResult.Score
 		if decision.ViceScore != nil {
-			finalViceScore = clampScore(*decision.ViceScore)
+			viceResult.Score = clampScore(*decision.ViceScore)
 		}
-		viceResult.Score = finalViceScore
-		viceCopy := finalViceScore
-		decision.ViceScore = &viceCopy
 
-		// Trust the AI's decision - it has structured thinking to classify word types
-		// Check new field first (decision.Decision), then fall back to legacy (decision.Recommendation)
+		// Use the AI's famous brand info to enrich the trademark result
+		if decision.FamousLabel != "" {
+			trademarkResult.MatchedTrademark = strings.TrimSpace(decision.FamousLabel)
+		} else if decision.FamousBrandMatch != "" {
+			trademarkResult.MatchedTrademark = strings.TrimSpace(decision.FamousBrandMatch)
+		}
+		if decision.FamousMatch != nil && *decision.FamousMatch {
+			if trademarkResult.Type == "none" || trademarkResult.Type == "generic" {
+				trademarkResult.Type = "famous_brand"
+			}
+		}
+		if strings.EqualFold(decision.WordType, "famous_brand") || strings.EqualFold(decision.WordType, "contains_brand") {
+			if trademarkResult.Type == "none" || trademarkResult.Type == "generic" {
+				trademarkResult.Type = decision.WordType
+			}
+		}
+
+		// Trust the AI's decision directly
 		finalRec := strings.ToUpper(strings.TrimSpace(decision.Decision))
 		if finalRec == "" {
 			finalRec = strings.ToUpper(strings.TrimSpace(decision.Recommendation))
 		}
 		if finalRec == "" {
-			finalRec = "POTENTIAL_RISK" // Default if AI didn't respond
+			finalRec = "POTENTIAL_RISK"
 		}
 
 		// Map old format to new 3-tier system
@@ -769,7 +736,7 @@ func (s *Server) evaluateDomain(
 			finalRec = "NO_RISK"
 		}
 
-		// Only override for serious vice content (drugs, illegal activity, etc.)
+		// Safety net: override for severe vice content regardless of AI
 		if viceResult.Score >= 4 {
 			finalRec = "YES_RISK"
 		}
@@ -777,23 +744,9 @@ func (s *Server) evaluateDomain(
 		decision.Recommendation = finalRec
 		overall.Recommendation = finalRec
 
-		if decision.Confidence == nil {
-			if popularToken {
-				conf := 0.95
-				decision.Confidence = &conf
-			} else if genericPopular || fancifulUnknown {
-				conf := 0.75
-				decision.Confidence = &conf
-			}
-		}
-
 		if decision.Confidence != nil {
 			conf := clampConfidence(*decision.Confidence)
 			overall.Confidence = conf
-			trademarkResult.Confidence = conf
-			if viceResult.Confidence == 0 {
-				viceResult.Confidence = conf
-			}
 		} else {
 			combined := scoring.CombineRecommendation(trademarkResult, viceResult)
 			overall.Confidence = combined.Confidence
@@ -809,14 +762,10 @@ func (s *Server) evaluateDomain(
 		"ai_fallback":        aiFallback,
 	}).Info("AI decision completed")
 
-	// Derive separate trademark and vice recommendations
-	// AI decision is primarily about trademark risk; vice is derived from vice scorer
-	tmRec := overall.Recommendation
+	// Derive trademark and vice recommendations INDEPENDENTLY from their own scores.
+	// Never let vice risk bleed into trademark recommendation or vice versa.
+	tmRec := store.ScoreToRecommendation(trademarkResult.Score)
 	viceRec := store.ScoreToRecommendation(viceResult.Score)
-	// If vice was the reason for YES_RISK, keep trademark at its natural level
-	if viceResult.Score >= 4 && trademarkResult.Score < 4 {
-		tmRec = store.ScoreToRecommendation(trademarkResult.Score)
-	}
 
 	eval := store.Evaluation{
 		Domain:                  domainValue,

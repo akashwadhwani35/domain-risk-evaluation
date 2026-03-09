@@ -9,13 +9,14 @@ func TestCombineRecommendation(t *testing.T) {
 		vice     ViceResult
 		expected string
 	}{
-		{"tr block", TrademarkResult{Score: 5, Confidence: 1}, ViceResult{Score: 0, Confidence: 0.9}, "BLOCK"},
-		{"tr block at 4", TrademarkResult{Score: 4, Confidence: 0.9}, ViceResult{Score: 0, Confidence: 0.9}, "BLOCK"},
-		{"vice block", TrademarkResult{Score: 0, Confidence: 0.9}, ViceResult{Score: 4, Confidence: 0.95}, "BLOCK"},
-		{"review", TrademarkResult{Score: 3, Confidence: 0.7}, ViceResult{Score: 0, Confidence: 0.9}, "REVIEW"},
-		{"review at 2", TrademarkResult{Score: 2, Confidence: 0.7}, ViceResult{Score: 0, Confidence: 0.9}, "REVIEW"},
-		{"allow with caution", TrademarkResult{Score: 1, Confidence: 0.5}, ViceResult{Score: 0, Confidence: 0.9}, "ALLOW_WITH_CAUTION"},
-		{"allow", TrademarkResult{Score: 0, Confidence: 0.9}, ViceResult{Score: 0, Confidence: 0.99}, "ALLOW"},
+		{"tr yes_risk score 5", TrademarkResult{Score: 5, Confidence: 1}, ViceResult{Score: 0, Confidence: 0.9}, "YES_RISK"},
+		{"tr yes_risk score 4", TrademarkResult{Score: 4, Confidence: 0.9}, ViceResult{Score: 0, Confidence: 0.9}, "YES_RISK"},
+		{"vice yes_risk", TrademarkResult{Score: 0, Confidence: 0.9}, ViceResult{Score: 4, Confidence: 0.95}, "YES_RISK"},
+		{"tr potential_risk", TrademarkResult{Score: 3, Confidence: 0.7}, ViceResult{Score: 0, Confidence: 0.9}, "POTENTIAL_RISK"},
+		{"vice potential_risk", TrademarkResult{Score: 0, Confidence: 0.9}, ViceResult{Score: 3, Confidence: 0.8}, "POTENTIAL_RISK"},
+		{"tr score 2 no_risk", TrademarkResult{Score: 2, Confidence: 0.7}, ViceResult{Score: 0, Confidence: 0.9}, "NO_RISK"},
+		{"tr score 1 no_risk", TrademarkResult{Score: 1, Confidence: 0.5}, ViceResult{Score: 0, Confidence: 0.9}, "NO_RISK"},
+		{"clean no_risk", TrademarkResult{Score: 0, Confidence: 0.9}, ViceResult{Score: 0, Confidence: 0.99}, "NO_RISK"},
 	}
 
 	for _, tc := range tests {
