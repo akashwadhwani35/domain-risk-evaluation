@@ -118,6 +118,7 @@ func main() {
 			"http://localhost:1000",
 			"http://127.0.0.1:1000",
 			"https://domain-risk-frontend.onrender.com",
+			"https://domain-risk-frontend-0j47.onrender.com",
 			"https://riskscore.website",
 		},
 		AIConfig:        aiCfg,
