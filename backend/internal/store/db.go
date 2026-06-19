@@ -104,6 +104,33 @@ func (d *Database) SaveDomain(domain *Domain) error {
 	}).Create(domain).Error
 }
 
+// SaveDomains upserts many domains in batched transactions. This is dramatically
+// faster than calling SaveDomain in a loop (one locked transaction per row),
+// which made large CSV uploads exceed the client request timeout.
+func (d *Database) SaveDomains(domains []*Domain) error {
+	if len(domains) == 0 {
+		return nil
+	}
+	clean := make([]*Domain, 0, len(domains))
+	for _, domain := range domains {
+		if domain == nil {
+			continue
+		}
+		domain.Domain = strings.TrimSpace(domain.Domain)
+		domain.DomainNormalized = normalizeDomainKey(domain.Domain)
+		clean = append(clean, domain)
+	}
+	if len(clean) == 0 {
+		return nil
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.gorm.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "domain_normalized"}},
+		DoUpdates: clause.AssignmentColumns([]string{"domain", "brand_token", "tokens_json", "updated_at"}),
+	}).CreateInBatches(clean, 500).Error
+}
+
 // SaveEvaluation creates an evaluation row.
 func (d *Database) SaveEvaluation(e *Evaluation) error {
 	if e == nil {

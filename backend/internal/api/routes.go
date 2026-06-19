@@ -671,11 +671,9 @@ func (s *Server) handleUpload(c *gin.Context) {
 		return
 	}
 
-	for _, domain := range parsed.domainModels {
-		if err := s.db.SaveDomain(domain); err != nil {
-			s.renderError(c, http.StatusInternalServerError, fmt.Errorf("save domain %s: %w", domain.Domain, err))
-			return
-		}
+	if err := s.db.SaveDomains(parsed.domainModels); err != nil {
+		s.renderError(c, http.StatusInternalServerError, fmt.Errorf("save domains: %w", err))
+		return
 	}
 
 	for i := range parsed.domainBatches {
