@@ -426,6 +426,17 @@ func applyIndexes(db *gorm.DB) error {
 // CreateCSVBatch inserts a new CSV batch record.
 func (d *Database) CreateCSVBatch(name, owner, filename string) (*CSVBatch, error) {
 	batch := &CSVBatch{Name: name, Owner: owner, OriginalFilename: filename}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	// The imported production database's csv_batches table does not reliably
+	// auto-increment its primary key, so gorm.Create leaves ID=0 and every new
+	// batch collapses to id 0 — which the frontend cannot select or evaluate.
+	// Assign the next id explicitly so new batches always get a real, unique id.
+	var maxID uint
+	if err := d.gorm.Model(&CSVBatch{}).Select("COALESCE(MAX(id), 0)").Scan(&maxID).Error; err != nil {
+		return nil, err
+	}
+	batch.ID = maxID + 1
 	if err := d.gorm.Create(batch).Error; err != nil {
 		return nil, err
 	}
