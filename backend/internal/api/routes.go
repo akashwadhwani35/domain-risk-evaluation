@@ -48,9 +48,16 @@ type Config struct {
 	PopularMinCount    int
 	MarksLimit         int
 	// Auth configuration
-	JWTSecret      string
-	ResendAPIKey   string
+	JWTSecret       string
+	AllowedDomain   string // login email domain restriction; "" or "*" = any
+	ResendAPIKey    string
 	ResendFromEmail string
+	// SMTP delivery (alternative to Resend; sends from any mailbox to anyone)
+	SMTPHost     string
+	SMTPPort     string
+	SMTPUsername string
+	SMTPPassword string
+	SMTPFrom     string
 }
 
 // Server wires HTTP handlers with persistence and scoring.
@@ -86,7 +93,8 @@ type Server struct {
 	tldCacheMu        sync.Mutex
 	// Auth services
 	authService   *auth.Service
-	emailService  *auth.EmailService
+	emailSender   auth.OTPSender
+	allowedDomain string
 }
 
 const commercialMinPrice = 10000.0
@@ -178,18 +186,37 @@ func NewServer(cfg Config) (*Server, error) {
 		logrus.Warn("JWT_SECRET not configured - authentication disabled")
 	}
 
-	// Initialize email service if Resend credentials are configured
-	var emailService *auth.EmailService
-	if cfg.ResendAPIKey != "" && cfg.ResendFromEmail != "" {
-		var err error
-		emailService, err = auth.NewEmailService(cfg.ResendAPIKey, cfg.ResendFromEmail)
+	// Initialize OTP delivery. Prefer SMTP when configured (works from any
+	// mailbox to any recipient without a verified domain); otherwise fall back
+	// to Resend. If neither is configured, OTPs are logged for development.
+	var emailSender auth.OTPSender
+	switch {
+	case cfg.SMTPHost != "" && cfg.SMTPUsername != "" && cfg.SMTPPassword != "":
+		smtpSvc, err := auth.NewSMTPService(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUsername, cfg.SMTPPassword, cfg.SMTPFrom)
 		if err != nil {
-			logrus.WithError(err).Warn("email service initialization failed")
+			logrus.WithError(err).Warn("SMTP email service initialization failed")
 		} else {
-			logrus.WithField("from", cfg.ResendFromEmail).Info("email service enabled")
+			emailSender = smtpSvc
+			logrus.WithField("host", cfg.SMTPHost).Info("SMTP email service enabled")
 		}
-	} else {
-		logrus.Warn("RESEND_API_KEY or RESEND_FROM_EMAIL not configured - email service disabled")
+	case cfg.ResendAPIKey != "" && cfg.ResendFromEmail != "":
+		emailSvc, err := auth.NewEmailService(cfg.ResendAPIKey, cfg.ResendFromEmail)
+		if err != nil {
+			logrus.WithError(err).Warn("Resend email service initialization failed")
+		} else {
+			emailSender = emailSvc
+			logrus.WithField("from", cfg.ResendFromEmail).Info("Resend email service enabled")
+		}
+	default:
+		logrus.Warn("no email transport configured (set SMTP_* or RESEND_*) - OTP codes will be logged, not emailed")
+	}
+
+	allowedDomain := strings.TrimSpace(cfg.AllowedDomain)
+	if allowedDomain == "" {
+		allowedDomain = auth.AllowedDomain
+	}
+	if allowedDomain == "*" {
+		logrus.Warn("AUTH_ALLOWED_DOMAIN=* - any email address may request a login code")
 	}
 
 	server := &Server{
@@ -210,7 +237,8 @@ func NewServer(cfg Config) (*Server, error) {
 		popularMinCount: cfg.PopularMinCount,
 		marksLimit:      cfg.MarksLimit,
 		authService:     authService,
-		emailService:    emailService,
+		emailSender:     emailSender,
+		allowedDomain:   allowedDomain,
 	}
 
 	// Initialize feedback retriever if embedding client is available

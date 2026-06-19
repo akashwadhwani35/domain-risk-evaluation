@@ -37,8 +37,8 @@ func (s *Server) handleRequestOTP(c *gin.Context) {
 
 	email := strings.ToLower(strings.TrimSpace(req.Email))
 
-	// Validate email domain
-	if err := auth.ValidateEmail(email); err != nil {
+	// Validate email domain against the configured allowed domain.
+	if err := auth.ValidateEmailFor(email, s.allowedDomain); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": err.Error(),
 		})
@@ -76,18 +76,21 @@ func (s *Server) handleRequestOTP(c *gin.Context) {
 		return
 	}
 
-	// Send OTP email
-	if s.emailService != nil {
-		if err := s.emailService.SendOTP(email, code); err != nil {
+	// Send OTP email. Surface delivery failures so a misconfigured transport
+	// is visible instead of returning a false "sent" success.
+	if s.emailSender != nil {
+		if err := s.emailSender.SendOTP(email, code); err != nil {
 			logrus.WithError(err).WithField("email", email).Error("send OTP email")
-			// Don't expose email sending errors to the user for security
-			// The OTP is still created, but the user won't receive it
+			c.JSON(http.StatusBadGateway, gin.H{
+				"error": "could not send verification email; please contact an administrator",
+			})
+			return
 		}
 	} else {
 		logrus.WithFields(logrus.Fields{
 			"email": email,
 			"code":  code,
-		}).Warn("email service not configured, OTP logged for development")
+		}).Warn("email transport not configured, OTP logged for development")
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -106,8 +109,8 @@ func (s *Server) handleVerifyOTP(c *gin.Context) {
 	email := strings.ToLower(strings.TrimSpace(req.Email))
 	code := strings.TrimSpace(req.Code)
 
-	// Validate email domain
-	if err := auth.ValidateEmail(email); err != nil {
+	// Validate email domain against the configured allowed domain.
+	if err := auth.ValidateEmailFor(email, s.allowedDomain); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": err.Error(),
 		})

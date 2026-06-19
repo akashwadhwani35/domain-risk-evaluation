@@ -40,6 +40,19 @@ services:
         value: "50000"
       - key: LOG_LEVEL
         value: debug
+      # --- Auth / OTP delivery ---
+      # Auto-generated 32+ char signing key for login cookies.
+      - key: JWT_SECRET
+        generateValue: true
+      # "*" = allow login with any email address.
+      - key: AUTH_ALLOWED_DOMAIN
+        value: "*"
+      # Resend delivery via the account's verified domain (inboxparty.online),
+      # which can send to ANY recipient. Only the API key is a secret.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        value: "Domain Risk <noreply@inboxparty.online>"
 
   - type: web
     name: domain-risk-frontend

@@ -104,8 +104,14 @@ func main() {
 
 	// Auth configuration
 	jwtSecret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
+	allowedDomain := strings.TrimSpace(os.Getenv("AUTH_ALLOWED_DOMAIN"))
 	resendAPIKey := strings.TrimSpace(os.Getenv("RESEND_API_KEY"))
 	resendFromEmail := strings.TrimSpace(os.Getenv("RESEND_FROM_EMAIL"))
+	smtpHost := strings.TrimSpace(os.Getenv("SMTP_HOST"))
+	smtpPort := strings.TrimSpace(os.Getenv("SMTP_PORT"))
+	smtpUsername := strings.TrimSpace(os.Getenv("SMTP_USERNAME"))
+	smtpPassword := strings.TrimSpace(os.Getenv("SMTP_PASSWORD"))
+	smtpFrom := strings.TrimSpace(os.Getenv("SMTP_FROM"))
 
 	cfg := api.Config{
 		DBPath:             filepath.Join(dataDir, "domain-risk.db"),
@@ -129,8 +135,14 @@ func main() {
 		MarksLimit:      marksLimit,
 		// Auth configuration
 		JWTSecret:       jwtSecret,
+		AllowedDomain:   allowedDomain,
 		ResendAPIKey:    resendAPIKey,
 		ResendFromEmail: resendFromEmail,
+		SMTPHost:        smtpHost,
+		SMTPPort:        smtpPort,
+		SMTPUsername:    smtpUsername,
+		SMTPPassword:    smtpPassword,
+		SMTPFrom:        smtpFrom,
 	}
 
 	if override := strings.TrimSpace(os.Getenv("DOMAIN_RISK_DB_PATH")); override != "" {

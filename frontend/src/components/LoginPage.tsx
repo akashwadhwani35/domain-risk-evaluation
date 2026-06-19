@@ -5,7 +5,9 @@ import { useAuth } from '../contexts/AuthContext';
 
 type Step = 'email' | 'otp';
 
-const ALLOWED_DOMAIN = '@radix.email';
+// Basic shape check only. The backend enforces the actual allowed-domain
+// policy (AUTH_ALLOWED_DOMAIN), so we don't hard-code a domain here.
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function LoginPage() {
   const { setUser } = useAuth();
@@ -21,8 +23,8 @@ export default function LoginPage() {
     if (!trimmed) {
       return 'Email is required';
     }
-    if (!trimmed.endsWith(ALLOWED_DOMAIN)) {
-      return `Email must end with ${ALLOWED_DOMAIN}`;
+    if (!EMAIL_PATTERN.test(trimmed)) {
+      return 'Please enter a valid email address';
     }
     return null;
   }, []);
@@ -130,7 +132,7 @@ export default function LoginPage() {
             <h1 className="text-2xl font-semibold text-[var(--text)]">Domain Risk Evaluation</h1>
             <p className="text-[var(--muted)] mt-2">
               {step === 'email'
-                ? 'Sign in with your @radix.email address'
+                ? 'Sign in with your email address'
                 : 'Enter the verification code'}
             </p>
           </div>
@@ -152,14 +154,14 @@ export default function LoginPage() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@radix.email"
+                  placeholder="you@example.com"
                   className="w-full rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-4 py-3 text-[var(--text)] placeholder:text-[var(--muted)] focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:ring-opacity-20"
                   disabled={loading}
                   autoFocus
                   autoComplete="email"
                 />
                 <p className="mt-2 text-xs text-[var(--muted)]">
-                  Only @radix.email addresses are allowed
+                  We'll email you a one-time verification code
                 </p>
               </div>
 

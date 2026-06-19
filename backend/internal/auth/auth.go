@@ -52,14 +52,35 @@ func NewService(jwtSecret string) (*Service, error) {
 	}, nil
 }
 
-// ValidateEmail checks if the email ends with @radix.email
+// ValidateEmail checks if the email ends with the default @radix.email domain.
 func ValidateEmail(email string) error {
+	return ValidateEmailFor(email, AllowedDomain)
+}
+
+// ValidateEmailFor checks an email against a configurable allowed domain.
+// An empty allowedDomain or "*" disables the restriction and accepts any
+// syntactically non-empty email address. A leading "@" on allowedDomain is
+// optional (both "radix.email" and "@radix.email" work).
+func ValidateEmailFor(email, allowedDomain string) error {
 	email = strings.ToLower(strings.TrimSpace(email))
 	if email == "" {
 		return errors.New("email is required")
 	}
-	if !strings.HasSuffix(email, AllowedDomain) {
-		return ErrInvalidEmail
+
+	allowedDomain = strings.ToLower(strings.TrimSpace(allowedDomain))
+	if allowedDomain == "" || allowedDomain == "*" {
+		// No domain restriction: accept any address that looks like an email.
+		if !strings.Contains(email, "@") || strings.HasPrefix(email, "@") || strings.HasSuffix(email, "@") {
+			return errors.New("a valid email address is required")
+		}
+		return nil
+	}
+
+	if !strings.HasPrefix(allowedDomain, "@") {
+		allowedDomain = "@" + allowedDomain
+	}
+	if !strings.HasSuffix(email, allowedDomain) {
+		return fmt.Errorf("email must end with %s", allowedDomain)
 	}
 	return nil
 }
