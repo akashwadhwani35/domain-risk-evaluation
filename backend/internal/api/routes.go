@@ -20,6 +20,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/text/encoding/unicode"
+	"golang.org/x/text/transform"
 	"gorm.io/gorm"
 
 	"domain-risk-eval/backend/internal/ai"
@@ -1319,7 +1321,12 @@ func parseDomainCSV(path string) (*csvParseResult, error) {
 	}
 	defer f.Close()
 
-	reader := csv.NewReader(f)
+	// Decode based on a byte-order mark so UTF-16 (LE/BE) and BOM-prefixed
+	// UTF-8 exports (e.g. from Excel/Sheets) parse correctly. Files with no
+	// BOM are treated as UTF-8.
+	decoded := transform.NewReader(f, unicode.BOMOverride(unicode.UTF8.NewDecoder()))
+
+	reader := csv.NewReader(decoded)
 	reader.FieldsPerRecord = -1
 	reader.TrimLeadingSpace = true
 
