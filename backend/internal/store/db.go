@@ -46,7 +46,13 @@ func Open(path string, silent bool) (*Database, error) {
 	if err := applyIndexes(db); err != nil {
 		return nil, fmt.Errorf("apply indexes: %w", err)
 	}
-	return &Database{gorm: db}, nil
+	database := &Database{gorm: db}
+	// Clear any evaluation requests left "running" by a previous process; jobs
+	// live in memory, so on startup these are orphaned and would block new runs.
+	if err := database.ResetOrphanedBatchRequests(); err != nil {
+		logrus.WithError(err).Warn("reset orphaned batch requests")
+	}
+	return database, nil
 }
 
 // GORM exposes the raw gorm.DB handle.
@@ -582,6 +588,15 @@ func (d *Database) CreateBatchRequest(batchID uint, requestType, status, jobID s
 		JobID:     jobID,
 		StartedAt: time.Now(),
 	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	// Same broken auto-increment as csv_batches: assign the id explicitly so
+	// each request has a real, unique id and can be finalized precisely.
+	var maxID uint
+	if err := d.gorm.Model(&BatchRequest{}).Select("COALESCE(MAX(id), 0)").Scan(&maxID).Error; err != nil {
+		return nil, err
+	}
+	request.ID = maxID + 1
 	if err := d.gorm.Create(request).Error; err != nil {
 		return nil, err
 	}
@@ -611,15 +626,48 @@ func (d *Database) LatestRunningBatchRequest() (*BatchRequest, error) {
 }
 
 // UpsertJobState inserts or updates a job state record.
+//
+// The imported production DB's job_states table has no usable unique key on
+// job_id, so an ON CONFLICT upsert fails ("does not match any PRIMARY KEY or
+// UNIQUE constraint") and jobs could never persist their final state — leaving
+// batch requests stuck "running". Do a manual update-or-insert instead.
 func (d *Database) UpsertJobState(state *JobState) error {
 	if state == nil {
 		return errors.New("job state is nil")
 	}
 	state.UpdatedAt = time.Now()
-	return d.gorm.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "job_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{"batch_id", "request_id", "status", "message", "processed", "total", "last_event_json", "updated_at"}),
-	}).Create(state).Error
+	res := d.gorm.Model(&JobState{}).
+		Where("job_id = ?", state.JobID).
+		Updates(map[string]any{
+			"batch_id":        state.BatchID,
+			"request_id":      state.RequestID,
+			"status":          state.Status,
+			"message":         state.Message,
+			"processed":       state.Processed,
+			"total":           state.Total,
+			"last_event_json": state.LastEventJSON,
+			"updated_at":      state.UpdatedAt,
+		})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		if state.CreatedAt.IsZero() {
+			state.CreatedAt = state.UpdatedAt
+		}
+		return d.gorm.Create(state).Error
+	}
+	return nil
+}
+
+// ResetOrphanedBatchRequests marks any batch requests still flagged as active as
+// failed. Evaluation jobs live in memory, so on a fresh process start any
+// "running" request is orphaned and would otherwise block new evaluations (409).
+func (d *Database) ResetOrphanedBatchRequests() error {
+	now := time.Now()
+	return d.gorm.Model(&BatchRequest{}).
+		Where("status IN ?", []string{"running", "started", "progress", "evaluation"}).
+		Updates(map[string]any{"status": "failed", "finished_at": &now}).Error
 }
 
 // GetLatestJobState returns the most recently updated job state.
